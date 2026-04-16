@@ -8,13 +8,13 @@ http:
   url: http://localhost:8080/v1/api/rules/:ruleId
   params:
     - name: ruleId
-      value: ""
+      value: 106eade0-30ad-4167-9f9e-6d3fae303b9f
       type: path
   body:
     type: json
     data: |-
       {
-        "name": "Invoice Forwarding Rule",
+        "name": "Invoice Forwarding Rules",
         "keywords": [
           "invoice",
           "payment",
@@ -34,8 +34,7 @@ http:
         "aiContext": "Extract invoice details and categorize",
         "rotationEnabled": false,
         "smartThreadEnabled": true,
-        "extractAttachments": true,
-        "templateId": "550e8400-e29b-41d4-a716-446655440000"
+        "extractAttachments": true
       }
   auth:
     type: bearer

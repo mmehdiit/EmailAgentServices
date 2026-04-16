@@ -8,7 +8,7 @@ http:
   url: http://localhost:8080/v1/api/rules/:ruleId
   params:
     - name: ruleId
-      value: ""
+      value: 325773a9-4c51-4b3c-8800-5d67d0970ceb
       type: path
   body:
     type: json

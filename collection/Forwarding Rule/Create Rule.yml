@@ -30,8 +30,7 @@ http:
         "aiContext": "Extract invoice details and categorize",
         "rotationEnabled": false,
         "smartThreadEnabled": true,
-        "extractAttachments": true,
-        "templateId": "550e8400-e29b-41d4-a716-446655440000"
+        "extractAttachments": true
       }
   auth:
     type: bearer
