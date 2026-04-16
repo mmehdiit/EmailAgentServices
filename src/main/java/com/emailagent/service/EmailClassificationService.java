@@ -1,0 +1,242 @@
+package com.emailagent.service;
+
+import com.emailagent.model.ForwardingRule;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class EmailClassificationService {
+
+    private final ObjectMapper objectMapper;
+
+    @Value("${ai.gateway.url}")
+    private String gatewayUrl;
+
+    @Value("${ai.gateway.api-key}")
+    private String apiKey;
+
+    @Value("${ai.gateway.model}")
+    private String model;
+
+    public record ClassificationResult(
+            String matchedRuleId,
+            String matchedRuleName,
+            double confidence,
+            String reasoning,
+            String overrideRecipientEmail
+    ) {}
+
+    public record EmailData(
+            String subject,
+            String body,
+            String sender,
+            boolean isForwarded,
+            String originalSender,
+            String originalSubject,
+            String originalDate
+    ) {}
+
+    public ClassificationResult classify(EmailData email, List<ForwardingRule> rules) {
+        // Filter to AI-enabled rules and apply negative keyword pre-filter
+        String combinedContent = (email.subject() + " " + (email.originalSubject() != null ? email.originalSubject() : "")).toLowerCase();
+
+        List<ForwardingRule> aiRules = rules.stream()
+                .filter(ForwardingRule::isAiEnabled)
+                .filter(r -> {
+                    if (r.getNegativeKeywords() == null || r.getNegativeKeywords().length == 0) return true;
+                    boolean excluded = Arrays.stream(r.getNegativeKeywords())
+                            .anyMatch(nk -> nk != null && !nk.isBlank() && combinedContent.contains(nk.toLowerCase().trim()));
+                    if (excluded) {
+                        // Check if positive keyword in subject overrides
+                        boolean hasPositiveInSubject = r.getKeywords() != null && Arrays.stream(r.getKeywords())
+                                .anyMatch(kw -> kw != null && !kw.isBlank() && combinedContent.contains(kw.toLowerCase().trim()));
+                        if (hasPositiveInSubject) {
+                            log.debug("[AI PRE-FILTER] Rule \"{}\" negative keyword overridden by subject positive match", r.getName());
+                            return true;
+                        }
+                        log.debug("[AI PRE-FILTER] Rule \"{}\" excluded by negative keyword", r.getName());
+                        return false;
+                    }
+                    return true;
+                })
+                .toList();
+
+        if (aiRules.isEmpty()) {
+            return new ClassificationResult(null, null, 0, "No AI-enabled rules available", null);
+        }
+
+        String systemPrompt = buildSystemPrompt(aiRules, email);
+        String userPrompt = buildUserPrompt(email);
+
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            String requestBody = objectMapper.writeValueAsString(Map.of(
+                    "model", model,
+                    "messages", List.of(
+                            Map.of("role", "system", "content", systemPrompt),
+                            Map.of("role", "user", "content", userPrompt)
+                    )
+            ));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(gatewayUrl))
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 429) {
+                log.warn("AI rate limit exceeded");
+                return new ClassificationResult(null, null, 0, "AI rate limit exceeded", null);
+            }
+            if (response.statusCode() != 200) {
+                log.error("AI gateway error {}: {}", response.statusCode(), response.body());
+                return new ClassificationResult(null, null, 0, "AI classification failed", null);
+            }
+
+            JsonNode responseData = objectMapper.readTree(response.body());
+            String content = responseData.path("choices").path(0).path("message").path("content").asText("");
+
+            if (content.isBlank()) {
+                return new ClassificationResult(null, null, 0, "AI returned empty response", null);
+            }
+
+            // Clean markdown code blocks
+            content = content.trim();
+            if (content.startsWith("```json")) content = content.substring(7);
+            if (content.startsWith("```")) content = content.substring(3);
+            if (content.endsWith("```")) content = content.substring(0, content.length() - 3);
+            content = content.trim();
+
+            JsonNode classification = objectMapper.readTree(content);
+            String matchedRuleIdRaw = classification.hasNonNull("matched_rule_id") ? classification.get("matched_rule_id").asText(null) : null;
+            String matchedRuleName = classification.hasNonNull("matched_rule_name") ? classification.get("matched_rule_name").asText(null) : null;
+            double confidence = classification.path("confidence").asDouble(0);
+            String reasoning = classification.path("reasoning").asText("");
+            String overrideEmail = classification.hasNonNull("override_recipient_email") ? classification.get("override_recipient_email").asText(null) : null;
+
+            // Validate matched rule ID
+            String matchedRuleId = matchedRuleIdRaw;
+            if (matchedRuleId != null) {
+                final String ruleIdToFind = matchedRuleId;
+                ForwardingRule validRule = aiRules.stream()
+                        .filter(r -> r.getId().toString().equals(ruleIdToFind))
+                        .findFirst()
+                        .orElse(null);
+
+                if (validRule == null && matchedRuleName != null) {
+                    // Fuzzy fallback by name
+                    final String nameLower = matchedRuleName.toLowerCase().trim();
+                    validRule = aiRules.stream()
+                            .filter(r -> r.getName().toLowerCase().trim().equals(nameLower))
+                            .findFirst()
+                            .orElse(null);
+                    if (validRule != null) {
+                        log.debug("[AI FUZZY] Recovered rule via name match: {} ({})", validRule.getName(), validRule.getId());
+                        matchedRuleId = validRule.getId().toString();
+                    }
+                }
+
+                if (validRule == null) {
+                    log.warn("[AI] Invalid rule ID returned: {}", matchedRuleId);
+                    return new ClassificationResult(null, null, 0, "AI returned invalid rule reference", null);
+                }
+
+                // Post-validation: check negative keywords against original rules
+                if (validRule.getNegativeKeywords() != null && validRule.getNegativeKeywords().length > 0) {
+                    boolean postExcluded = Arrays.stream(validRule.getNegativeKeywords())
+                            .anyMatch(nk -> nk != null && !nk.isBlank() && combinedContent.contains(nk.toLowerCase().trim()));
+                    if (postExcluded) {
+                        log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword", validRule.getName());
+                        return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword", null);
+                    }
+                }
+            }
+
+            log.debug("[AI] Classification: ruleId={}, confidence={}, reasoning={}", matchedRuleId, confidence, reasoning);
+            return new ClassificationResult(matchedRuleId, matchedRuleName, confidence, reasoning, overrideEmail);
+
+        } catch (Exception e) {
+            log.error("Error during AI classification", e);
+            return new ClassificationResult(null, null, 0, "AI classification error: " + e.getMessage(), null);
+        }
+    }
+
+    private String buildSystemPrompt(List<ForwardingRule> rules, EmailData email) {
+        StringBuilder rulesDesc = new StringBuilder();
+        for (int i = 0; i < rules.size(); i++) {
+            ForwardingRule r = rules.get(i);
+            rulesDesc.append("Rule ").append(i + 1)
+                    .append(" (ID: ").append(r.getId())
+                    .append(", Name: \"").append(r.getName())
+                    .append("\", Priority: ").append(r.getPriority()).append("):\n");
+            if (r.getKeywords() != null && r.getKeywords().length > 0) {
+                rulesDesc.append("  - Keywords: ").append(String.join(", ", r.getKeywords())).append("\n");
+            }
+            if (r.getNegativeKeywords() != null && r.getNegativeKeywords().length > 0) {
+                rulesDesc.append("  - EXCLUDE if email contains: ").append(String.join(", ", r.getNegativeKeywords())).append("\n");
+            }
+            if (r.getSenderPattern() != null) {
+                rulesDesc.append("  - Sender pattern: ").append(r.getSenderPattern()).append("\n");
+            }
+            if (r.getSubjectPattern() != null) {
+                rulesDesc.append("  - Subject pattern: ").append(r.getSubjectPattern()).append("\n");
+            }
+            if (r.getConditions() != null) {
+                rulesDesc.append("  - Conditions: ").append(r.getConditions()).append("\n");
+            }
+            if (r.getAiContext() != null) {
+                rulesDesc.append("  - Additional context: ").append(r.getAiContext()).append("\n");
+            }
+        }
+
+        String forwardedContext = "";
+        if (email.isForwarded()) {
+            forwardedContext = "\nIMPORTANT: This is a FORWARDED email.\n" +
+                    "- Original Sender: " + (email.originalSender() != null ? email.originalSender() : "Not detected") + "\n" +
+                    "- Original Subject: " + (email.originalSubject() != null ? email.originalSubject() : "Not detected") + "\n" +
+                    "- Original Date: " + (email.originalDate() != null ? email.originalDate() : "Not detected") + "\n";
+        }
+
+        return "You are an email classification assistant for an insurance company in the UAE. " +
+                "Analyze incoming emails and determine which forwarding rule best matches.\n\n" +
+                "IMPORTANT: Focus on the LATEST message in a thread. Older quoted messages may contain keywords for different rules - IGNORE those.\n" +
+                "Only match if confidence > 0.7. Return null if no good match or if email is unrelated to insurance.\n\n" +
+                forwardedContext +
+                "Available rules:\n" + rulesDesc +
+                "\nRespond with JSON only: {matched_rule_id, matched_rule_name, confidence, reasoning, override_recipient_email}";
+    }
+
+    private String buildUserPrompt(EmailData email) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("FROM: ").append(email.sender()).append("\n");
+        sb.append("SUBJECT: ").append(email.subject()).append("\n");
+        if (email.isForwarded()) {
+            sb.append("\n--- FORWARDED EMAIL ---\n");
+            sb.append("Original Sender: ").append(email.originalSender()).append("\n");
+            sb.append("Original Subject: ").append(email.originalSubject()).append("\n");
+        }
+        sb.append("\nFULL EMAIL BODY:\n");
+        String body = email.body();
+        if (body != null && body.length() > 6000) body = body.substring(0, 6000);
+        sb.append(body);
+        sb.append("\n\nRespond with valid JSON only.");
+        return sb.toString();
+    }
+}

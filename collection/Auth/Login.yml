@@ -1,0 +1,22 @@
+info:
+  name: Login
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/auth/login
+  body:
+    type: json
+    data: |-
+      {
+        "email": "admin@emailagent.com",
+        "password": "ARp7ca1krNZvNhrL"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

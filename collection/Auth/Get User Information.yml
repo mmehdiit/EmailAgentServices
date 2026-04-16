@@ -1,0 +1,17 @@
+info:
+  name: Get User Information
+  type: http
+  seq: 2
+
+http:
+  method: GET
+  url: http://localhost:8080/v1/api/auth/me
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzI3NjM4LCJleHAiOjE3NzY0MTQwMzh9.aU7Xp5qJ4f3-Nvnnr2bK7adjKfdLvo0neah_fJIPdq3tNBBM5NRm1LLJaxRd5ZQ-FqgfPlf_1bNqxGRD4aCubQ
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

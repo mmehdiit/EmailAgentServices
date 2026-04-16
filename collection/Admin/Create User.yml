@@ -1,0 +1,24 @@
+info:
+  name: Create User
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/admin/users
+  body:
+    type: json
+    data: |-
+      {
+        "email" : "anthony.eltabbal@gmail.com",
+        "password" : "76341272aT"
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzI3NjM4LCJleHAiOjE3NzY0MTQwMzh9.aU7Xp5qJ4f3-Nvnnr2bK7adjKfdLvo0neah_fJIPdq3tNBBM5NRm1LLJaxRd5ZQ-FqgfPlf_1bNqxGRD4aCubQ
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

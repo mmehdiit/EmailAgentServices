@@ -1,0 +1,7 @@
+info:
+  name: Email Log
+  type: folder
+  seq: 4
+
+request:
+  auth: inherit
