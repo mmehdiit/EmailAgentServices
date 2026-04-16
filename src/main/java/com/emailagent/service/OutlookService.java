@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -212,8 +213,14 @@ public class OutlookService {
     public JsonNode callGraphApi(String accessToken, String endpoint) {
         try {
             HttpClient client = HttpClient.newHttpClient();
+            URI uri = UriComponentsBuilder
+                    .fromUriString("https://graph.microsoft.com/v1.0/me/" + endpoint)
+                    .build()
+                    .encode()
+                    .toUri();
+
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://graph.microsoft.com/v1.0/me/" + endpoint))
+                    .uri(uri)
                     .header("Authorization", "Bearer " + accessToken)
                     .header("Prefer", "outlook.body-content-type=\"html\"")
                     .GET()
