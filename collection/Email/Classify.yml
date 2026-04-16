@@ -1,0 +1,27 @@
+info:
+  name: Classify
+  type: http
+  seq: 8
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/emails/classify
+  body:
+    type: json
+    data: |-
+      {
+        "email": {
+          "subject": "Invoice #1234 for March services",
+          "body": "Please find attached the invoice for services rendered in March.",
+          "sender": "billing@vendor.com"
+        }
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzM1NTIxLCJleHAiOjE3NzY0MjE5MjF9.xKfpN7cvggJqSko6mEvyfWI_WlRky9nnIEDxpX7wKrwlmAaYgthKWcCZlQINHn2IRepCDZJBlD1yLRLK4fZsGg
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

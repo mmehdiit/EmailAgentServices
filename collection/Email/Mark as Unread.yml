@@ -1,0 +1,21 @@
+info:
+  name: Mark as Unread
+  type: http
+  seq: 5
+
+http:
+  method: PATCH
+  url: http://localhost:8080/v1/api/emails/:messageId/unread
+  params:
+    - name: messageId
+      value: AQMkADAwATNiZmYAZS1hNzE1LTRkNmEtMDACLTAwCgBGAAADKpU_b2LotUOSD2vz0j5yAgcAlZz0O_xwekexg9DgsFh77QAAAgEMAAAAlZz0O_xwekexg9DgsFh77QAAAE6_hH4AAAA=
+      type: path
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzM1NTIxLCJleHAiOjE3NzY0MjE5MjF9.xKfpN7cvggJqSko6mEvyfWI_WlRky9nnIEDxpX7wKrwlmAaYgthKWcCZlQINHn2IRepCDZJBlD1yLRLK4fZsGg
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

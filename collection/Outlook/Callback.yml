@@ -1,0 +1,25 @@
+info:
+  name: Callback
+  type: http
+  seq: 2
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/outlook/auth
+  body:
+    type: json
+    data: |-
+      {
+        "code": "M.C105_BL2.2.U.f3a1b2c3-d4e5-6789-abcd-ef0123456789",
+        "frontendOrigin": "https://your-frontend.com",
+        "redirectUri": "https://your-frontend.com/outlook/callback"
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzM1NTIxLCJleHAiOjE3NzY0MjE5MjF9.xKfpN7cvggJqSko6mEvyfWI_WlRky9nnIEDxpX7wKrwlmAaYgthKWcCZlQINHn2IRepCDZJBlD1yLRLK4fZsGg
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

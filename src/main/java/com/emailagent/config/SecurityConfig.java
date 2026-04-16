@@ -6,7 +6,6 @@ import java.nio.file.Paths;
 import java.util.Properties;
 import java.util.StringTokenizer;
 
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -40,9 +39,6 @@ public class SecurityConfig {
     private static final String FILE_CONFIG_LOCATION_UNIX = "/appsfiles/security/security.properties";
 
     private static String allowed = null;
-
-    @Value("${app.cors.allowed-origins}")
-    private String allowedOriginsStr;
 
     @Bean
     public PasswordEncoder passwordEncoder() {

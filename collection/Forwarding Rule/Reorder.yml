@@ -1,0 +1,27 @@
+info:
+  name: Reorder
+  type: http
+  seq: 5
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/rules/reorder
+  body:
+    type: json
+    data: |-
+      {
+        "ids": [
+          "d4e5f6a7-b8c9-0123-def0-1234567890ab",
+          "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+          "f0e1d2c3-b4a5-6789-0123-456789abcdef"
+        ]
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzI5NjYwLCJleHAiOjE3NzY0MTYwNjB9.qoYSmsWxpIFSNWsQSIGN4XJpgSH5zImlfvhSXhNataYuhpgOmBbkrbXjpMw_-eg29BSrxb-4Hzvu79iEqaTyHQ
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,35 @@
+info:
+  name: Delete Rule Recipient
+  type: http
+  seq: 4
+
+http:
+  method: DELETE
+  url: http://localhost:8080/v1/api/rules/:ruleId/recipients/:recipientId
+  params:
+    - name: recipientId
+      value: ""
+      type: path
+    - name: ruleId
+      value: ""
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+        "email": "john@example.com",
+        "displayName": "John Doe",
+        "sortOrder": 1,
+        "onVacation": false,
+        "vacationStart": null,
+        "vacationEnd": null
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzI5NjYwLCJleHAiOjE3NzY0MTYwNjB9.qoYSmsWxpIFSNWsQSIGN4XJpgSH5zImlfvhSXhNataYuhpgOmBbkrbXjpMw_-eg29BSrxb-4Hzvu79iEqaTyHQ
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -1,0 +1,24 @@
+info:
+  name: Auth
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/outlook/auth
+  body:
+    type: json
+    data: |-
+      {
+        "frontendOrigin": "https://beyond.claim-express.net",
+        "redirectUri": "https://c18c-77-42-158-66.ngrok-free.app/v1/api/outlook/callback"
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzM1NTIxLCJleHAiOjE3NzY0MjE5MjF9.xKfpN7cvggJqSko6mEvyfWI_WlRky9nnIEDxpX7wKrwlmAaYgthKWcCZlQINHn2IRepCDZJBlD1yLRLK4fZsGg
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

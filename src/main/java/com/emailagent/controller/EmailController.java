@@ -40,8 +40,8 @@ public class EmailController {
     public ResponseEntity<List<Map<String, Object>>> getUnreadEmails(@AuthenticationPrincipal AuthenticatedUser user) {
         String accessToken = outlookService.getValidAccessToken(user.getId());
         JsonNode emailsData = outlookService.callGraphApi(accessToken,
-                "mailFolders/inbox/messages?$filter=isRead eq false&$top=50" +
-                        "&$orderby=receivedDateTime desc" +
+                "mailFolders/inbox/messages?$filter=isRead%20eq%20false&$top=50" +
+                        "&$orderby=receivedDateTime%20desc" +
                         "&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId,hasAttachments");
 
         List<Map<String, Object>> result = new ArrayList<>();

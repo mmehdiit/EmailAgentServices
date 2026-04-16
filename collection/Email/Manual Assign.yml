@@ -1,0 +1,24 @@
+info:
+  name: Manual Assign
+  type: http
+  seq: 6
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/emails/manual-assign
+  body:
+    type: json
+    data: |-
+      {
+        "emailId": "",
+        "ruleId": ""
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzM1NTIxLCJleHAiOjE3NzY0MjE5MjF9.xKfpN7cvggJqSko6mEvyfWI_WlRky9nnIEDxpX7wKrwlmAaYgthKWcCZlQINHn2IRepCDZJBlD1yLRLK4fZsGg
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

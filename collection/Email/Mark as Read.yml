@@ -1,11 +1,15 @@
 info:
-  name: Get Unread Email
+  name: Mark as Read
   type: http
-  seq: 2
+  seq: 4
 
 http:
-  method: GET
-  url: http://localhost:8080/v1/api/emails/unread
+  method: PATCH
+  url: http://localhost:8080/v1/api/emails/:messageId/read
+  params:
+    - name: messageId
+      value: AQMkADAwATNiZmYAZS1hNzE1LTRkNmEtMDACLTAwCgBGAAADKpU_b2LotUOSD2vz0j5yAgcAlZz0O_xwekexg9DgsFh77QAAAgEMAAAAlZz0O_xwekexg9DgsFh77QAAAE6_hH4AAAA=
+      type: path
   auth:
     type: bearer
     token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzM4NDE3LCJleHAiOjE3NzY0MjQ4MTd9.vpO4COS83lZCb3qzXhtNjCYRi_avVovxlVHUugsnwm6q_IsIiBZtENHB_RQXTN0s8hAlGmO-hc6aTKFKqt_X1A

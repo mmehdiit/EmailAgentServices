@@ -1,0 +1,7 @@
+info:
+  name: Forwarding Rule
+  type: folder
+  seq: 6
+
+request:
+  auth: inherit

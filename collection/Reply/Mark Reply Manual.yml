@@ -1,0 +1,23 @@
+info:
+  name: Mark Reply Manual
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: http://localhost:8080/v1/api/reply/mark-manual
+  body:
+    type: json
+    data: |-
+      {
+        "emailLogId": "a1b2c3d4-e5f6-7890-abcd-ef0123456789"
+      }
+  auth:
+    type: bearer
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzI5NjYwLCJleHAiOjE3NzY0MTYwNjB9.qoYSmsWxpIFSNWsQSIGN4XJpgSH5zImlfvhSXhNataYuhpgOmBbkrbXjpMw_-eg29BSrxb-4Hzvu79iEqaTyHQ
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
