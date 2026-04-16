@@ -4,11 +4,11 @@ info:
   seq: 1
 
 http:
-  method: GET
+  method: POST
   url: http://localhost:8080/v1/api/emails/process
   auth:
     type: bearer
-    token: ""
+    token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzQwMzI3LCJleHAiOjE3NzY0MjY3Mjd9.Aw7N89mWywDHdqfNZ_yGMViGsAv_-BKfq0dm4gYFXM8Fcz4CKy7nVTtZC35t_dSXyQeyCweSqx3iv8ZTVMrnFA
 
 settings:
   encodeUrl: true
