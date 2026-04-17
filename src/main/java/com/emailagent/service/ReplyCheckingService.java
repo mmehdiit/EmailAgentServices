@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -70,7 +72,7 @@ public class ReplyCheckingService {
         log.info("Checking {} forwarded emails for replies for user {}", pendingLogs.size(), userId);
 
         // Get sent items from last 7 days
-        String sevenDaysAgo = OffsetDateTime.now().minusDays(7).toString();
+        String sevenDaysAgo = OffsetDateTime.now(ZoneOffset.UTC).minusDays(7).truncatedTo(ChronoUnit.SECONDS).toString();
         JsonNode sentData = outlookService.callGraphApi(accessToken,
                 "mailFolders/sentitems/messages?$filter=sentDateTime ge " + sevenDaysAgo +
                         "&$top=100&$orderby=sentDateTime desc&$select=id,toRecipients,sentDateTime,conversationId");
