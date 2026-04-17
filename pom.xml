@@ -106,7 +106,7 @@
             <artifactId>httpclient5</artifactId>
         </dependency>
 
-        <!-- Flyway database migrations -->
+<!-- Flyway database migrations -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>

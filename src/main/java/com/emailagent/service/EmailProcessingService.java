@@ -7,14 +7,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 
+import com.emailagent.dto.policereport.PoliceReportDto;
 import com.emailagent.model.EmailLog;
 import com.emailagent.model.ForwardingRule;
 import com.emailagent.model.OutlookConnection;
@@ -50,6 +60,22 @@ public class EmailProcessingService {
 
     @Value("${app.processing.enabled:true}")
     private boolean processingEnabled;
+
+    @Value("${app.ocr.url:http://localhost:8014}")
+    private String ocrBaseUrl;
+
+    @Value("${app.ocr.auth.url:http://localhost:8001}")
+    private String ocrAuthUrl;
+
+    @Value("${app.ocr.auth.username:}")
+    private String ocrAuthUsername;
+
+    @Value("${app.ocr.auth.password:}")
+    private String ocrAuthPassword;
+
+    private final RestTemplate ocrRestTemplate = new RestTemplate();
+    private String cachedOcrToken;
+    private long cachedOcrTokenFetchedAt = 0;
 
     /**
      * Scheduled job: process unread emails for all users every 5 minutes.
@@ -175,6 +201,14 @@ public class EmailProcessingService {
                         emailSubject, bodyText, emailFrom,
                         forwardedInfo.isForwarded(), forwardedInfo.originalSender(),
                         forwardedInfo.originalSubject(), forwardedInfo.originalDate());
+
+                // OCR: skip emails whose attachments contain a police report
+                boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
+                PoliceReportDto policeReport = null;
+                if (hasAttachments
+                        && (policeReport = hasPoliceReportAttachment(accessToken, outlookMessageId)) != null) {
+                            
+                }
 
                 // Find matching rule
                 ForwardingRule matchedRule = null;
@@ -666,21 +700,89 @@ public class EmailProcessingService {
 
         String originalSender = null, originalSubject = null, originalDate = null;
 
-        java.util.regex.Matcher fromMatcher = Pattern.compile("(?i)From:\\s*([^\\n<]+?)(?:\\s*<([^>]+)>)?[\\s\\n]")
+        Matcher fromMatcher = Pattern.compile("(?i)From:\\s*([^\\n<]+?)(?:\\s*<([^>]+)>)?[\\s\\n]")
                 .matcher(body);
         if (fromMatcher.find()) {
             originalSender = fromMatcher.group(2) != null ? fromMatcher.group(2).trim() : fromMatcher.group(1).trim();
         }
 
-        java.util.regex.Matcher subjectMatcher = Pattern.compile("(?i)Subject:\\s*([^\\n]+)").matcher(body);
+        Matcher subjectMatcher = Pattern.compile("(?i)Subject:\\s*([^\\n]+)").matcher(body);
         if (subjectMatcher.find())
             originalSubject = subjectMatcher.group(1).trim();
 
-        java.util.regex.Matcher dateMatcher = Pattern.compile("(?i)(Date|Sent):\\s*([^\\n]+)").matcher(body);
+        Matcher dateMatcher = Pattern.compile("(?i)(Date|Sent):\\s*([^\\n]+)").matcher(body);
         if (dateMatcher.find())
             originalDate = dateMatcher.group(2).trim();
 
         return new ForwardedInfo(true, originalSender, originalSubject, originalDate);
+    }
+
+    private String getOcrBearerToken() throws Exception {
+        // Cache token for 25 minutes (server timeout is 30)
+        if (cachedOcrToken != null && System.currentTimeMillis() - cachedOcrTokenFetchedAt < 25 * 60 * 1000L) {
+            return cachedOcrToken;
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Map<String, String> loginBody = Map.of("username", ocrAuthUsername, "password", ocrAuthPassword);
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(loginBody, headers);
+        ResponseEntity<String> response = ocrRestTemplate.postForEntity(ocrAuthUrl + "/v1/api/auth/login", request,
+                String.class);
+        JsonNode root = objectMapper.readValue(response.getBody(), JsonNode.class);
+        cachedOcrToken = root.path("data").path("token").asText();
+        cachedOcrTokenFetchedAt = System.currentTimeMillis();
+        log.debug("[OCR] Fetched new bearer token");
+        return cachedOcrToken;
+    }
+
+    private PoliceReportDto hasPoliceReportAttachment(String accessToken, String messageId) {
+        try {
+            String bearerToken = getOcrBearerToken();
+
+            JsonNode attachmentsData = outlookService.callGraphApi(accessToken,
+                    "messages/" + messageId + "/attachments?$select=name,contentType,contentBytes");
+            JsonNode attachments = attachmentsData.path("value");
+
+            for (JsonNode attachment : attachments) {
+                String contentBytesBase64 = attachment.path("contentBytes").asText("");
+                if (contentBytesBase64.isEmpty())
+                    continue;
+
+                byte[] fileBytes = java.util.Base64.getDecoder().decode(contentBytesBase64);
+                String fileName = attachment.path("name").asText("attachment");
+                String contentType = attachment.path("contentType").asText("application/octet-stream");
+
+                MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+                body.add("file", new ByteArrayResource(fileBytes) {
+                    @Override
+                    public String getFilename() {
+                        return fileName;
+                    }
+                });
+                body.add("docType", "police-report");
+
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+                headers.setBearerAuth(bearerToken);
+                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+                ResponseEntity<String> response = ocrRestTemplate.postForEntity(
+                        ocrBaseUrl + "/v1/api/ai-gateway/ocr/upload", requestEntity, String.class);
+                String responseBody = response.getBody();
+
+                if (responseBody == null)
+                    continue;
+
+                PoliceReportDto ocrResult = objectMapper.readValue(responseBody, PoliceReportDto.class);
+                if ("police-report".equals(ocrResult.getMeta().getDocumentType())) {
+                    log.info("[OCR] Police report found in attachment: {}", fileName);
+                    return ocrResult;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[OCR] Failed to classify attachments for message {}: {}", messageId, e.getMessage());
+        }
+        return null;
     }
 
     private boolean isInRecipients(JsonNode recipients, String email) {
