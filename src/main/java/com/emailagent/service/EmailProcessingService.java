@@ -24,6 +24,7 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
+import com.emailagent.dto.notification.NewNotificationByReportResponse;
 import com.emailagent.dto.policereport.PoliceReportDto;
 import com.emailagent.model.EmailLog;
 import com.emailagent.model.ForwardingRule;
@@ -72,6 +73,12 @@ public class EmailProcessingService {
 
     @Value("${app.ocr.auth.password:}")
     private String ocrAuthPassword;
+
+    @Value("${app.callcenter.url:http://localhost:8004}")
+    private String callCenterBaseUrl;
+
+    @Value("${app.datamanagement.url:http://localhost:8005}")
+    private String dataManagementBaseUrl;
 
     private final RestTemplate ocrRestTemplate = new RestTemplate();
     private String cachedOcrToken;
@@ -204,10 +211,34 @@ public class EmailProcessingService {
 
                 // OCR: skip emails whose attachments contain a police report
                 boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
-                PoliceReportDto policeReport = null;
+                PoliceReportAttachment policeReportAttachment = null;
                 if (hasAttachments
-                        && (policeReport = hasPoliceReportAttachment(accessToken, outlookMessageId)) != null) {
-                            
+                        && (policeReportAttachment = hasPoliceReportAttachment(accessToken, outlookMessageId)) != null) {
+                    log.info("[POLICE REPORT] Detected police report in email: {}", emailSubject);
+                    try {
+                        NewNotificationByReportResponse notificationResponse = createCarNotificationByPoliceReport(
+                                policeReportAttachment.reportDto());
+                        log.info("[POLICE REPORT] Successfully created car notification - ID: {}, Report: {}",
+                                notificationResponse.getNotificationId(), notificationResponse.getReportNumber());
+
+                        // If report number is empty, call the data management API
+                        if (notificationResponse.getReportNumber() == null
+                                || notificationResponse.getReportNumber().trim().isEmpty()) {
+                            log.info("[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
+                                    notificationResponse.getCarId());
+                            try {
+                                processPoliceReportAutomation(notificationResponse.getCarId(),
+                                        policeReportAttachment.fileBytes(), policeReportAttachment.fileName());
+                                log.info("[POLICE REPORT] Successfully processed police report automation for carId: {}",
+                                        notificationResponse.getCarId());
+                            } catch (Exception e) {
+                                log.error("[POLICE REPORT] Failed to process police report automation for carId: {}",
+                                        notificationResponse.getCarId(), e);
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.error("[POLICE REPORT] Failed to create car notification for email: {}", emailSubject, e);
+                    }
                 }
 
                 // Find matching rule
@@ -395,6 +426,9 @@ public class EmailProcessingService {
     }
 
     private record RotationResult(String email, String displayName) {
+    }
+
+    private record PoliceReportAttachment(PoliceReportDto reportDto, byte[] fileBytes, String fileName) {
     }
 
     private RotationResult getNextRotationRecipient(ForwardingRule rule) {
@@ -735,7 +769,7 @@ public class EmailProcessingService {
         return cachedOcrToken;
     }
 
-    private PoliceReportDto hasPoliceReportAttachment(String accessToken, String messageId) {
+    private PoliceReportAttachment hasPoliceReportAttachment(String accessToken, String messageId) {
         try {
             String bearerToken = getOcrBearerToken();
 
@@ -776,7 +810,7 @@ public class EmailProcessingService {
                 PoliceReportDto ocrResult = objectMapper.readValue(responseBody, PoliceReportDto.class);
                 if ("police-report".equals(ocrResult.getMeta().getDocumentType())) {
                     log.info("[OCR] Police report found in attachment: {}", fileName);
-                    return ocrResult;
+                    return new PoliceReportAttachment(ocrResult, fileBytes, fileName);
                 }
             }
         } catch (Exception e) {
@@ -794,5 +828,72 @@ public class EmailProcessingService {
             }
         }
         return false;
+    }
+
+    private NewNotificationByReportResponse createCarNotificationByPoliceReport(PoliceReportDto policeReport)
+            throws Exception {
+        String bearerToken = getOcrBearerToken();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(bearerToken);
+
+        HttpEntity<PoliceReportDto> request = new HttpEntity<>(policeReport, headers);
+
+        ResponseEntity<String> response = ocrRestTemplate.postForEntity(
+                callCenterBaseUrl + "/v1/api/call-center/cars-notification/create-by-police-report",
+                request,
+                String.class);
+
+        if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+            JsonNode apiResponse = objectMapper.readValue(response.getBody(), JsonNode.class);
+            JsonNode data = apiResponse.path("data");
+
+            if (!data.isMissingNode()) {
+                NewNotificationByReportResponse notificationResponse = objectMapper.treeToValue(data,
+                        NewNotificationByReportResponse.class);
+
+                log.info("[POLICE REPORT] Car notification created - Notification ID: {}, Visa: {}, Car ID: {}, Report Number: {}",
+                        notificationResponse.getNotificationId(),
+                        notificationResponse.getNotificationVisa(),
+                        notificationResponse.getCarId(),
+                        notificationResponse.getReportNumber());
+
+                return notificationResponse;
+            }
+        }
+
+        log.warn("[POLICE REPORT] Unexpected response status: {}", response.getStatusCode());
+        throw new RuntimeException("Failed to create car notification: " + response.getStatusCode());
+    }
+
+    private void processPoliceReportAutomation(String carId, byte[] fileBytes, String fileName) throws Exception {
+        String bearerToken = getOcrBearerToken();
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("policeReport", new ByteArrayResource(fileBytes) {
+            @Override
+            public String getFilename() {
+                return fileName;
+            }
+        });
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        headers.setBearerAuth(bearerToken);
+
+        HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+        String url = dataManagementBaseUrl + "/v1/api/data-management/data-reception/police-report-automation?carId="
+                + carId;
+
+        ResponseEntity<String> response = ocrRestTemplate.postForEntity(url, requestEntity, String.class);
+
+        if (response.getStatusCode().is2xxSuccessful()) {
+            log.info("[POLICE REPORT AUTOMATION] Successfully processed for carId: {}", carId);
+        } else {
+            log.warn("[POLICE REPORT AUTOMATION] Unexpected response status: {}", response.getStatusCode());
+            throw new RuntimeException("Failed to process police report automation: " + response.getStatusCode());
+        }
     }
 }
