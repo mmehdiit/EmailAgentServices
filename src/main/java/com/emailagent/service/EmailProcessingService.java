@@ -1,5 +1,6 @@
 package com.emailagent.service;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -212,8 +213,10 @@ public class EmailProcessingService {
                 // OCR: skip emails whose attachments contain a police report
                 boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
                 PoliceReportAttachment policeReportAttachment = null;
+                BigDecimal policeReportVisa = null;
                 if (hasAttachments
-                        && (policeReportAttachment = hasPoliceReportAttachment(accessToken, outlookMessageId)) != null) {
+                        && (policeReportAttachment = hasPoliceReportAttachment(accessToken,
+                                outlookMessageId)) != null) {
                     log.info("[POLICE REPORT] Detected police report in email: {}", emailSubject);
                     try {
                         NewNotificationByReportResponse notificationResponse = createCarNotificationByPoliceReport(
@@ -221,15 +224,19 @@ public class EmailProcessingService {
                         log.info("[POLICE REPORT] Successfully created car notification - ID: {}, Report: {}",
                                 notificationResponse.getNotificationId(), notificationResponse.getReportNumber());
 
+                        policeReportVisa = notificationResponse.getNotificationVisa();
+
                         // If report number is empty, call the data management API
                         if (notificationResponse.getReportNumber() == null
                                 || notificationResponse.getReportNumber().trim().isEmpty()) {
-                            log.info("[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
+                            log.info(
+                                    "[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
                                     notificationResponse.getCarId());
                             try {
                                 processPoliceReportAutomation(notificationResponse.getCarId(),
                                         policeReportAttachment.fileBytes(), policeReportAttachment.fileName());
-                                log.info("[POLICE REPORT] Successfully processed police report automation for carId: {}",
+                                log.info(
+                                        "[POLICE REPORT] Successfully processed police report automation for carId: {}",
                                         notificationResponse.getCarId());
                             } catch (Exception e) {
                                 log.error("[POLICE REPORT] Failed to process police report automation for carId: {}",
@@ -305,7 +312,7 @@ public class EmailProcessingService {
                 // Build tracking token and forward
                 UUID trackingToken = UUID.randomUUID();
                 String trackingLink = appUrl + "/mark-replied?token=" + trackingToken;
-                String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink);
+                String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink, policeReportVisa);
 
                 try {
                     outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
@@ -371,13 +378,13 @@ public class EmailProcessingService {
                     continue;
             }
 
-            // Keyword check
-            if (rule.getKeywords() == null || rule.getKeywords().length == 0)
-                continue;
-            boolean hasKeywordMatch = Arrays.stream(rule.getKeywords())
-                    .anyMatch(kw -> kw != null && !kw.isBlank() && primaryContent.contains(kw.toLowerCase().trim()));
-            if (!hasKeywordMatch)
-                continue;
+            // Keyword check (only required when keywords are defined)
+            if (rule.getKeywords() != null && rule.getKeywords().length > 0) {
+                boolean hasKeywordMatch = Arrays.stream(rule.getKeywords())
+                        .anyMatch(kw -> kw != null && !kw.isBlank() && primaryContent.contains(kw.toLowerCase().trim()));
+                if (!hasKeywordMatch)
+                    continue;
+            }
 
             // Negative keyword check
             if (rule.getNegativeKeywords() != null && rule.getNegativeKeywords().length > 0) {
@@ -524,7 +531,7 @@ public class EmailProcessingService {
         UUID trackingToken = UUID.randomUUID();
         String trackingLink = appUrl + "/mark-replied?token=" + trackingToken;
         String integratedEmail = connection.getEmailAddress() != null ? connection.getEmailAddress() : "";
-        String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink);
+        String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink, null);
 
         // Remove any existing no_match/failed log for this message
         emailLogRepository.deleteByOutlookMessageIdAndUserIdAndStatusIn(
@@ -607,8 +614,20 @@ public class EmailProcessingService {
         }
     }
 
-    private String buildReplyTrackingNote(String integratedEmail, String trackingLinkUrl) {
+    private String buildReplyTrackingNote(String integratedEmail, String trackingLinkUrl,
+            java.math.BigDecimal notificationVisa) {
+        String claimBanner = (notificationVisa != null)
+                ? "<div style=\"border: 2px solid #16a34a; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; background: #f0fdf4;\">"
+                        +
+                        "<p style=\"color: #15803d; font-weight: 700; font-size: 15px; margin: 0 0 6px 0;\">✅ New Claim Created</p>"
+                        +
+                        "<p style=\"color: #166534; font-size: 13px; margin: 0;\">A new claim has been automatically created from the attached police report. "
+                        +
+                        "Claim Visa: <strong>" + notificationVisa.toPlainString() + "</strong></p>" +
+                        "</div>"
+                : "";
         return "<div style=\"font-family: Arial, sans-serif; margin-bottom: 25px;\">" +
+                claimBanner +
                 "<div style=\"border-left: 4px solid #0C799A; padding: 16px 20px; margin-bottom: 20px; background: #f0f9ff; border-radius: 0 8px 8px 0;\">"
                 +
                 "<p style=\"color: #0C799A; font-size: 15px; font-weight: 600; margin: 0 0 8px 0;\">📧 AI Email Agent - Forwarded Email</p>"
@@ -856,7 +875,8 @@ public class EmailProcessingService {
                 NewNotificationByReportResponse notificationResponse = objectMapper.treeToValue(data,
                         NewNotificationByReportResponse.class);
 
-                log.info("[POLICE REPORT] Car notification created - Notification ID: {}, Visa: {}, Car ID: {}, Report Number: {}",
+                log.info(
+                        "[POLICE REPORT] Car notification created - Notification ID: {}, Visa: {}, Car ID: {}, Report Number: {}",
                         notificationResponse.getNotificationId(),
                         notificationResponse.getNotificationVisa(),
                         notificationResponse.getCarId(),
