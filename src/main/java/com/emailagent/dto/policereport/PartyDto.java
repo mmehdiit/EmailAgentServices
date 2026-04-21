@@ -5,41 +5,42 @@ import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import lombok.Data;
 
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class PartyDto implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     public String role;
 
-    // Identity
+    @JsonProperty("driverName")
     public String driverName;
 
+    @JsonProperty("ownerName")
     public String ownerName;
 
     public String nationality;
 
     public String gender;
 
+    @JsonProperty("dateOfBirth")
     public LocalDate dateOfBirth;
 
-    // Contact
+    @JsonProperty("mobileNumber")
     public String mobileNumber;
 
-    // Vehicle
     public VehicleDto vehicle = new VehicleDto();
 
-    // Insurance
     public InsuranceDto insurance = new InsuranceDto();
 
-    // License
     public LicenseDto license = new LicenseDto();
 
-    // Damage
     public DamageDto damage = new DamageDto();
 
-    // Optional: keep original raw fields if you want (debugging)
     public Map<String, String> raw = new HashMap<>();
 }

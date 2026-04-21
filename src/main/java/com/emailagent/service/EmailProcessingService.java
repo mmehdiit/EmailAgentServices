@@ -752,10 +752,6 @@ public class EmailProcessingService {
     }
 
     private String getOcrBearerToken() throws Exception {
-        // Cache token for 25 minutes (server timeout is 30)
-        if (cachedOcrToken != null && System.currentTimeMillis() - cachedOcrTokenFetchedAt < 25 * 60 * 1000L) {
-            return cachedOcrToken;
-        }
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         Map<String, String> loginBody = Map.of("username", ocrAuthUsername, "password", ocrAuthPassword);
@@ -774,17 +770,24 @@ public class EmailProcessingService {
             String bearerToken = getOcrBearerToken();
 
             JsonNode attachmentsData = outlookService.callGraphApi(accessToken,
-                    "messages/" + messageId + "/attachments?$select=name,contentType,contentBytes");
+                    "messages/" + messageId + "/attachments?$select=id,name,contentType");
             JsonNode attachments = attachmentsData.path("value");
 
             for (JsonNode attachment : attachments) {
-                String contentBytesBase64 = attachment.path("contentBytes").asText("");
+                String attachmentId = attachment.path("id").asText("");
+                String fileName = attachment.path("name").asText("attachment");
+                String contentType = attachment.path("contentType").asText("application/octet-stream");
+
+                if (attachmentId.isEmpty())
+                    continue;
+
+                JsonNode fullAttachment = outlookService.callGraphApi(accessToken,
+                        "messages/" + messageId + "/attachments/" + attachmentId);
+                String contentBytesBase64 = fullAttachment.path("contentBytes").asText("");
                 if (contentBytesBase64.isEmpty())
                     continue;
 
                 byte[] fileBytes = java.util.Base64.getDecoder().decode(contentBytesBase64);
-                String fileName = attachment.path("name").asText("attachment");
-                String contentType = attachment.path("contentType").asText("application/octet-stream");
 
                 MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
                 body.add("file", new ByteArrayResource(fileBytes) {
