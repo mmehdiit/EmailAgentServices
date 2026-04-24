@@ -1,6 +1,7 @@
 package com.emailagent.service;
 
 import com.emailagent.model.ForwardingRule;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -22,6 +23,10 @@ import java.util.Map;
 public class EmailClassificationService {
 
     private final ObjectMapper objectMapper;
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(java.time.Duration.ofSeconds(5))
+            .build();
 
     @Value("${ai.gateway.url}")
     private String gatewayUrl;
@@ -83,9 +88,12 @@ public class EmailClassificationService {
         String userPrompt = buildUserPrompt(email);
 
         try {
-            HttpClient client = HttpClient.newHttpClient();
             String requestBody = objectMapper.writeValueAsString(Map.of(
                     "model", model,
+                    "format", "json",
+                    "max_tokens", 256,
+                    "temperature", 0,
+                    "keep_alive", "10m",
                     "messages", List.of(
                             Map.of("role", "system", "content", systemPrompt),
                             Map.of("role", "user", "content", userPrompt)
@@ -99,7 +107,7 @@ public class EmailClassificationService {
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 429) {
                 log.warn("AI rate limit exceeded");
@@ -124,7 +132,10 @@ public class EmailClassificationService {
             if (content.endsWith("```")) content = content.substring(0, content.length() - 3);
             content = content.trim();
 
-            JsonNode classification = objectMapper.readTree(content);
+            JsonNode classification = objectMapper.readerFor(JsonNode.class)
+                    .with(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES)
+                    .with(JsonParser.Feature.ALLOW_SINGLE_QUOTES)
+                    .readValue(content);
             String matchedRuleIdRaw = classification.hasNonNull("matched_rule_id") ? classification.get("matched_rule_id").asText(null) : null;
             String matchedRuleName = classification.hasNonNull("matched_rule_name") ? classification.get("matched_rule_name").asText(null) : null;
             double confidence = classification.path("confidence").asDouble(0);
@@ -220,7 +231,8 @@ public class EmailClassificationService {
                 "Only match if confidence > 0.7. Return null if no good match or if email is unrelated to insurance.\n\n" +
                 forwardedContext +
                 "Available rules:\n" + rulesDesc +
-                "\nRespond with JSON only: {matched_rule_id, matched_rule_name, confidence, reasoning, override_recipient_email}";
+                "\nRespond with valid JSON only, using this exact structure:\n" +
+                "{\"matched_rule_id\": \"<rule id or null>\", \"matched_rule_name\": \"<rule name or null>\", \"confidence\": 0.0, \"reasoning\": \"<explanation>\", \"override_recipient_email\": null}";
     }
 
     private String buildUserPrompt(EmailData email) {
@@ -234,7 +246,7 @@ public class EmailClassificationService {
         }
         sb.append("\nFULL EMAIL BODY:\n");
         String body = email.body();
-        if (body != null && body.length() > 6000) body = body.substring(0, 6000);
+        if (body != null && body.length() > 1500) body = body.substring(0, 1500);
         sb.append(body);
         sb.append("\n\nRespond with valid JSON only.");
         return sb.toString();
