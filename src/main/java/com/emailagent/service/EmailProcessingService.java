@@ -363,6 +363,12 @@ public class EmailProcessingService {
             if (!rule.isActive())
                 continue;
 
+            boolean hasCriteria = (rule.getSenderPattern() != null && !rule.getSenderPattern().isBlank())
+                    || (rule.getSubjectPattern() != null && !rule.getSubjectPattern().isBlank())
+                    || (rule.getKeywords() != null && Arrays.stream(rule.getKeywords()).anyMatch(kw -> kw != null && !kw.isBlank()));
+            if (!hasCriteria)
+                continue;
+
             // Sender pattern check
             if (rule.getSenderPattern() != null && !rule.getSenderPattern().isBlank()) {
                 if (!emailData.sender().toLowerCase().contains(rule.getSenderPattern().toLowerCase()))
