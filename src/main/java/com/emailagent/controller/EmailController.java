@@ -21,7 +21,7 @@ import java.util.UUID;
 
 @Slf4j
 @RestController
-@RequestMapping("/v1/api/emails")
+@RequestMapping("/v1/api/email-agent/emails")
 @RequiredArgsConstructor
 public class EmailController {
 

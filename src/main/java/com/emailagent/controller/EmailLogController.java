@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 @RestController
-@RequestMapping("/v1/api/email-logs")
+@RequestMapping("/v1/api/email-agent/email-logs")
 @RequiredArgsConstructor
 public class EmailLogController {
 

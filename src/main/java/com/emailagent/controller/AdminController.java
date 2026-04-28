@@ -11,7 +11,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/v1/api/admin")
+@RequestMapping("/v1/api/email-agent/admin")
 @RequiredArgsConstructor
 public class AdminController {
 

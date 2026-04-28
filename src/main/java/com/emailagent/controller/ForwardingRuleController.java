@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/v1/api/rules")
+@RequestMapping("/v1/api/email-agent/rules")
 @RequiredArgsConstructor
 public class ForwardingRuleController {
 

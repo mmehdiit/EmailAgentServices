@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/v1/api/reply")
+@RequestMapping("/v1/api/email-agent/reply")
 @RequiredArgsConstructor
 public class ReplyController {
 

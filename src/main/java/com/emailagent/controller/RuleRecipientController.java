@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/v1/api/rules/{ruleId}/recipients")
+@RequestMapping("/v1/api/email-agent/rules/{ruleId}/recipients")
 @RequiredArgsConstructor
 public class RuleRecipientController {
 

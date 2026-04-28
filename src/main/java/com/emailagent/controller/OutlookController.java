@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/v1/api/outlook")
+@RequestMapping("/v1/api/email-agent/outlook")
 @RequiredArgsConstructor
 public class OutlookController {
 
