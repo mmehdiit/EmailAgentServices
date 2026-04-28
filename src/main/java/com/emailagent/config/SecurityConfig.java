@@ -58,8 +58,8 @@ public class SecurityConfig {
                 })
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/v1/api/auth/**").permitAll()
-                        .requestMatchers("/v1/api/reply/mark").permitAll()
+                        .requestMatchers("/v1/api/email-agent/auth/**").permitAll()
+                        .requestMatchers("/v1/api/email-agent/reply/mark").permitAll()
                         .requestMatchers("/actuator/health").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
