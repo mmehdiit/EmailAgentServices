@@ -355,7 +355,7 @@ public class EmailProcessingService {
 
     private ForwardingRule findKeywordMatch(EmailData emailData, List<ForwardingRule> rules, String bodyText) {
         String effectiveBody = extractEffectiveBody(bodyText);
-        String combinedContent = (emailData.subject() + " " + effectiveBody).toLowerCase();
+        String combinedContent = (emailData.subject() + " " + bodyText).toLowerCase();
         String primaryContentRaw = extractPrimaryMessage(effectiveBody).toLowerCase();
         final String primaryContent = primaryContentRaw.isEmpty() ? combinedContent : primaryContentRaw;
 
@@ -387,7 +387,9 @@ public class EmailProcessingService {
             // Keyword check (only required when keywords are defined)
             if (rule.getKeywords() != null && rule.getKeywords().length > 0) {
                 boolean hasKeywordMatch = Arrays.stream(rule.getKeywords())
-                        .anyMatch(kw -> kw != null && !kw.isBlank() && primaryContent.contains(kw.toLowerCase().trim()));
+                        .anyMatch(kw -> kw != null && !kw.isBlank()
+                                && (primaryContent.contains(kw.toLowerCase().trim())
+                                        || combinedContent.contains(kw.toLowerCase().trim())));
                 if (!hasKeywordMatch)
                     continue;
             }
@@ -395,8 +397,9 @@ public class EmailProcessingService {
             // Negative keyword check
             if (rule.getNegativeKeywords() != null && rule.getNegativeKeywords().length > 0) {
                 boolean excluded = Arrays.stream(rule.getNegativeKeywords())
-                        .anyMatch(
-                                nk -> nk != null && !nk.isBlank() && combinedContent.contains(nk.toLowerCase().trim()));
+                        .anyMatch(nk -> nk != null && !nk.isBlank()
+                                && (primaryContent.contains(nk.toLowerCase().trim())
+                                        || combinedContent.contains(nk.toLowerCase().trim())));
                 if (excluded)
                     continue;
             }

@@ -6,6 +6,9 @@ import com.emailagent.repository.EmailLogRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -15,7 +18,15 @@ public class EmailLogService {
 
     private final EmailLogRepository emailLogRepository;
 
-    public List<EmailLogDto> getLogsForUser(UUID userId) {
+    public List<EmailLogDto> getLogsForUser(UUID userId, LocalDate fromDate, LocalDate toDate) {
+        if (fromDate != null && toDate != null) {
+            OffsetDateTime from = fromDate.atStartOfDay().atOffset(ZoneOffset.UTC);
+            OffsetDateTime to = toDate.atTime(23, 59, 59).atOffset(ZoneOffset.UTC);
+            return emailLogRepository.findByUserIdAndProcessedAtBetweenOrderByProcessedAtDesc(userId, from, to)
+                    .stream()
+                    .map(this::toDto)
+                    .toList();
+        }
         return emailLogRepository.findByUserIdOrderByProcessedAtDesc(userId)
                 .stream()
                 .map(this::toDto)
