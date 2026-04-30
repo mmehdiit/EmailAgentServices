@@ -2,7 +2,6 @@ package com.emailagent.service;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -12,7 +11,6 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -113,44 +111,29 @@ public class EmailProcessingService {
             return Map.of("message", "No connections to process");
         }
 
-        AtomicInteger totalProcessed = new AtomicInteger();
-        AtomicInteger totalForwarded = new AtomicInteger();
-        AtomicInteger totalAiClassified = new AtomicInteger();
-
-        List<CompletableFuture<Void>> futures = new ArrayList<>(connections.size());
         for (OutlookConnection connection : connections) {
-            futures.add(CompletableFuture.runAsync(() -> {
+            CompletableFuture.runAsync(() -> {
                 try {
-                    Map<String, Integer> result = processUserEmails(connection);
-                    totalProcessed.addAndGet(result.getOrDefault("processed", 0));
-                    totalForwarded.addAndGet(result.getOrDefault("forwarded", 0));
-                    totalAiClassified.addAndGet(result.getOrDefault("ai_classified", 0));
+                    processUserEmails(connection);
                 } catch (Exception e) {
                     log.error("Error processing emails for user {}", connection.getUserId(), e);
                 }
-            }, emailProcessingExecutor));
+            }, emailProcessingExecutor);
         }
 
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-
-        log.info("Email processing complete. Processed: {}, Forwarded: {}, AI: {}",
-                totalProcessed.get(), totalForwarded.get(), totalAiClassified.get());
-        return Map.of("processed", totalProcessed.get(), "forwarded", totalForwarded.get(),
-                "ai_classified", totalAiClassified.get());
+        log.info("Email processing started asynchronously for {} user(s)", connections.size());
+        return Map.of("message", "Processing started", "users", connections.size());
     }
 
     /**
      * Process emails for a specific user (can also be called on-demand from the
      * API).
      */
-    @Transactional
     public Map<String, Object> processForUser(UUID userId) {
         OutlookConnection connection = connectionRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("No Outlook connection"));
-        Map<String, Integer> result = processUserEmails(connection);
-        return Map.of(
-                "processed", result.getOrDefault("processed", 0),
-                "forwarded", result.getOrDefault("forwarded", 0));
+        CompletableFuture.runAsync(() -> processUserEmails(connection), emailProcessingExecutor);
+        return Map.of("message", "Processing started");
     }
 
     private Map<String, Integer> processUserEmails(OutlookConnection connection) {
