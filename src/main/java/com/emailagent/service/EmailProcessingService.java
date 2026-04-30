@@ -2,15 +2,22 @@ package com.emailagent.service;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
@@ -56,6 +63,8 @@ public class EmailProcessingService {
     private final EmailClassificationService classificationService;
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
+    @Qualifier("emailProcessingExecutor")
+    private final Executor emailProcessingExecutor;
 
     @Value("${app.url}")
     private String appUrl;
@@ -81,6 +90,7 @@ public class EmailProcessingService {
     @Value("${app.datamanagement.url:http://localhost:8005}")
     private String dataManagementBaseUrl;
 
+    private final ConcurrentHashMap<UUID, ReentrantLock> userProcessingLocks = new ConcurrentHashMap<>();
     private final RestTemplate ocrRestTemplate = new RestTemplate();
     private String cachedOcrToken;
     private long cachedOcrTokenFetchedAt = 0;
@@ -96,7 +106,6 @@ public class EmailProcessingService {
         processAllUsers();
     }
 
-    @Transactional
     public Map<String, Object> processAllUsers() {
         List<OutlookConnection> connections = connectionRepository.findAll();
         if (connections.isEmpty()) {
@@ -104,22 +113,30 @@ public class EmailProcessingService {
             return Map.of("message", "No connections to process");
         }
 
-        int totalProcessed = 0, totalForwarded = 0, totalAiClassified = 0;
+        AtomicInteger totalProcessed = new AtomicInteger();
+        AtomicInteger totalForwarded = new AtomicInteger();
+        AtomicInteger totalAiClassified = new AtomicInteger();
 
+        List<CompletableFuture<Void>> futures = new ArrayList<>(connections.size());
         for (OutlookConnection connection : connections) {
-            try {
-                Map<String, Integer> result = processUserEmails(connection);
-                totalProcessed += result.getOrDefault("processed", 0);
-                totalForwarded += result.getOrDefault("forwarded", 0);
-                totalAiClassified += result.getOrDefault("ai_classified", 0);
-            } catch (Exception e) {
-                log.error("Error processing emails for user {}", connection.getUserId(), e);
-            }
+            futures.add(CompletableFuture.runAsync(() -> {
+                try {
+                    Map<String, Integer> result = processUserEmails(connection);
+                    totalProcessed.addAndGet(result.getOrDefault("processed", 0));
+                    totalForwarded.addAndGet(result.getOrDefault("forwarded", 0));
+                    totalAiClassified.addAndGet(result.getOrDefault("ai_classified", 0));
+                } catch (Exception e) {
+                    log.error("Error processing emails for user {}", connection.getUserId(), e);
+                }
+            }, emailProcessingExecutor));
         }
 
-        log.info("Email processing complete. Processed: {}, Forwarded: {}, AI: {}", totalProcessed, totalForwarded,
-                totalAiClassified);
-        return Map.of("processed", totalProcessed, "forwarded", totalForwarded, "ai_classified", totalAiClassified);
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        log.info("Email processing complete. Processed: {}, Forwarded: {}, AI: {}",
+                totalProcessed.get(), totalForwarded.get(), totalAiClassified.get());
+        return Map.of("processed", totalProcessed.get(), "forwarded", totalForwarded.get(),
+                "ai_classified", totalAiClassified.get());
     }
 
     /**
@@ -137,6 +154,23 @@ public class EmailProcessingService {
     }
 
     private Map<String, Integer> processUserEmails(OutlookConnection connection) {
+        UUID userId = connection.getUserId();
+
+        ReentrantLock lock = userProcessingLocks.computeIfAbsent(userId, k -> new ReentrantLock());
+        if (!lock.tryLock()) {
+            log.info("Skipping email processing for user {} — already in progress", userId);
+            return Map.of("processed", 0, "forwarded", 0, "ai_classified", 0);
+        }
+
+        try {
+            return doProcessUserEmails(connection);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    @Transactional
+    private Map<String, Integer> doProcessUserEmails(OutlookConnection connection) {
         UUID userId = connection.getUserId();
         log.info("Processing emails for user {}", userId);
 
