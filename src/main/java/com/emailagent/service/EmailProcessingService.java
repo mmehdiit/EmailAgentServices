@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -629,7 +630,12 @@ public class EmailProcessingService {
                 // ignore parse error
             }
         }
-        emailLogRepository.save(log);
+        try {
+            emailLogRepository.save(log);
+        } catch (DataIntegrityViolationException e) {
+            log.warn("[DUPLICATE] Email log already exists for message {} / user {}, skipping insert",
+                    outlookMessageId, userId);
+        }
     }
 
     private void notifyUser(UUID userId, String event, Map<String, Object> data) {

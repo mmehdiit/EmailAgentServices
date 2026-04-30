@@ -11,7 +11,9 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @Entity
-@Table(name = "email_logs")
+@Table(name = "email_logs", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_email_logs_message_user", columnNames = {"outlook_message_id", "user_id"})
+})
 public class EmailLog {
 
     @Id
