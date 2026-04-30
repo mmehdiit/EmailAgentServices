@@ -610,28 +610,28 @@ public class EmailProcessingService {
             UUID ruleMatched, String status, String outlookMessageId, String conversationId,
             boolean aiClassified, Double aiConfidence, String aiReasoning,
             UUID trackingToken, String receivedDateTime) {
-        EmailLog log = new EmailLog();
-        log.setUserId(userId);
-        log.setEmailFrom(emailFrom);
-        log.setEmailSubject(emailSubject);
-        log.setForwardedTo(forwardedTo);
-        log.setRuleMatched(ruleMatched);
-        log.setStatus(status);
-        log.setOutlookMessageId(outlookMessageId);
-        log.setOutlookConversationId(conversationId);
-        log.setAiClassified(aiClassified);
-        log.setAiConfidence(aiConfidence);
-        log.setAiReasoning(aiReasoning);
-        log.setTrackingToken(trackingToken);
+        EmailLog emailLog = new EmailLog();
+        emailLog.setUserId(userId);
+        emailLog.setEmailFrom(emailFrom);
+        emailLog.setEmailSubject(emailSubject);
+        emailLog.setForwardedTo(forwardedTo);
+        emailLog.setRuleMatched(ruleMatched);
+        emailLog.setStatus(status);
+        emailLog.setOutlookMessageId(outlookMessageId);
+        emailLog.setOutlookConversationId(conversationId);
+        emailLog.setAiClassified(aiClassified);
+        emailLog.setAiConfidence(aiConfidence);
+        emailLog.setAiReasoning(aiReasoning);
+        emailLog.setTrackingToken(trackingToken);
         if (receivedDateTime != null && !receivedDateTime.isEmpty()) {
             try {
-                log.setReceivedAt(OffsetDateTime.parse(receivedDateTime));
+                emailLog.setReceivedAt(OffsetDateTime.parse(receivedDateTime));
             } catch (Exception e) {
                 // ignore parse error
             }
         }
         try {
-            emailLogRepository.save(log);
+            emailLogRepository.save(emailLog);
         } catch (DataIntegrityViolationException e) {
             log.warn("[DUPLICATE] Email log already exists for message {} / user {}, skipping insert",
                     outlookMessageId, userId);
