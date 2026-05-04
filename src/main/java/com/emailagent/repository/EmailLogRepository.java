@@ -25,6 +25,8 @@ public interface EmailLogRepository extends JpaRepository<EmailLog, UUID> {
 
     boolean existsByOutlookMessageIdAndUserId(String outlookMessageId, UUID userId);
 
+    boolean existsByOutlookMessageIdAndUserIdAndStatus(String outlookMessageId, UUID userId, String status);
+
     List<EmailLog> findByUserIdAndStatusAndReplyDetectedFalseAndOutlookConversationIdIsNotNull(
             UUID userId, String status);
 

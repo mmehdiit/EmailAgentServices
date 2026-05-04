@@ -210,10 +210,10 @@ public class EmailProcessingService {
                     log.debug("[SKIP] Duplicate in batch: {}", emailSubject);
                     continue;
                 }
-                // Skip if already logged in DB from a previous run
-                if (emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
-                    processedInThisRun.add(outlookMessageId); // prevent repeated DB lookups for same ID
-                    log.debug("[SKIP] Already processed: {}", emailSubject);
+                // Skip only if already successfully forwarded — failed/no_match emails must be retried
+                if (emailLogRepository.existsByOutlookMessageIdAndUserIdAndStatus(outlookMessageId, userId, "forwarded")) {
+                    processedInThisRun.add(outlookMessageId);
+                    log.debug("[SKIP] Already forwarded: {}", emailSubject);
                     continue;
                 }
                 processedInThisRun.add(outlookMessageId);
@@ -650,9 +650,20 @@ public class EmailProcessingService {
             }
         }
         if (outlookMessageId != null && emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
-            log.debug("[DUPLICATE] Email log already exists for message {} / user {}, skipping insert",
-                    outlookMessageId, userId);
-            return;
+            if ("forwarded".equals(status)) {
+                // Upgrade stale failed/no_match/skipped record to forwarded
+                emailLogRepository.deleteByOutlookMessageIdAndUserIdAndStatusIn(
+                        outlookMessageId, userId, List.of("failed", "no_match", "skipped"));
+                if (emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
+                    log.debug("[DUPLICATE] Email already forwarded for message {} / user {}, skipping insert",
+                            outlookMessageId, userId);
+                    return;
+                }
+            } else {
+                log.debug("[DUPLICATE] Email log already exists for message {} / user {}, skipping insert",
+                        outlookMessageId, userId);
+                return;
+            }
         }
         try {
             emailLogRepository.save(emailLog);
