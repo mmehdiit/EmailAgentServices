@@ -68,25 +68,25 @@ public class EmailProcessingService {
     @Value("${app.url}")
     private String appUrl;
 
-    @Value("${app.processing.enabled:true}")
+    @Value("${app.processing.enabled}")
     private boolean processingEnabled;
 
-    @Value("${app.ocr.url:http://localhost:8014}")
+    @Value("${app.ocr.url}")
     private String ocrBaseUrl;
 
-    @Value("${app.ocr.auth.url:http://localhost:8001}")
+    @Value("${app.ocr.auth.url}")
     private String ocrAuthUrl;
 
-    @Value("${app.ocr.auth.username:}")
+    @Value("${app.ocr.auth.username}")
     private String ocrAuthUsername;
 
-    @Value("${app.ocr.auth.password:}")
+    @Value("${app.ocr.auth.password}")
     private String ocrAuthPassword;
 
-    @Value("${app.callcenter.url:http://localhost:8004}")
+    @Value("${app.callcenter.url}")
     private String callCenterBaseUrl;
 
-    @Value("${app.datamanagement.url:http://localhost:8005}")
+    @Value("${app.datamanagement.url}")
     private String dataManagementBaseUrl;
 
     private final ConcurrentHashMap<UUID, ReentrantLock> userProcessingLocks = new ConcurrentHashMap<>();
@@ -97,7 +97,7 @@ public class EmailProcessingService {
     /**
      * Scheduled job: process unread emails for all users every 5 minutes.
      */
-    @Scheduled(cron = "${app.processing.cron:0 */5 * * * *}")
+    @Scheduled(cron = "${app.processing.cron}")
     public void scheduledProcessEmails() {
         if (!processingEnabled)
             return;
@@ -153,7 +153,6 @@ public class EmailProcessingService {
         }
     }
 
-    @Transactional
     private Map<String, Integer> doProcessUserEmails(OutlookConnection connection) {
         UUID userId = connection.getUserId();
         log.info("Processing emails for user {}", userId);
@@ -632,10 +631,15 @@ public class EmailProcessingService {
                 // ignore parse error
             }
         }
+        if (outlookMessageId != null && emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
+            log.debug("[DUPLICATE] Email log already exists for message {} / user {}, skipping insert",
+                    outlookMessageId, userId);
+            return;
+        }
         try {
             emailLogRepository.save(emailLog);
         } catch (DataIntegrityViolationException e) {
-            log.warn("[DUPLICATE] Email log already exists for message {} / user {}, skipping insert",
+            log.warn("[DUPLICATE] Race condition on email log insert for message {} / user {}, skipping",
                     outlookMessageId, userId);
         }
     }
