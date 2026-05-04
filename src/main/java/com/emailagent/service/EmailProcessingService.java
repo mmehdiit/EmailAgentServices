@@ -292,7 +292,8 @@ public class EmailProcessingService {
                     // No match - log as no_match
                     saveEmailLog(userId, emailFrom, emailSubject, null, null, "no_match",
                             outlookMessageId, conversationId, false, 0.0,
-                            aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime);
+                            aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime,
+                            aiResult != null ? aiResult.negativeKeywordOverride() : null);
                     log.info("[NO MATCH] Email: {}", emailSubject);
                     continue;
                 }
@@ -318,7 +319,7 @@ public class EmailProcessingService {
                             saveEmailLog(userId, emailFrom, emailSubject, null, matchedRule.getId(), "skipped",
                                     outlookMessageId, conversationId, wasAiClassified,
                                     aiResult != null ? aiResult.confidence() : 0,
-                                    "All recipients on vacation", null, receivedDateTime);
+                                    "All recipients on vacation", null, receivedDateTime, null);
                             continue;
                         }
                         effectiveRecipient = rotation.email();
@@ -343,7 +344,7 @@ public class EmailProcessingService {
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
                             aiResult != null ? aiResult.reasoning() : null,
-                            trackingToken, receivedDateTime);
+                            trackingToken, receivedDateTime, null);
 
                     forwarded++;
                     log.info("[FORWARDED] \"{}\" → {} via rule \"{}\"", emailSubject, effectiveRecipient,
@@ -360,7 +361,7 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, effectiveRecipient, matchedRule.getId(), "failed",
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
-                            "Forward failed: " + e.getMessage(), null, receivedDateTime);
+                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null);
                 }
 
             } catch (Exception e) {
@@ -573,7 +574,7 @@ public class EmailProcessingService {
         // Log
         saveEmailLog(userId, emailFrom, emailSubject, rule.getRecipientEmail(), rule.getId(), "forwarded",
                 outlookMessageId, conversationId, false, null,
-                "Manually assigned by user", trackingToken, receivedDateTime);
+                "Manually assigned by user", trackingToken, receivedDateTime, null);
 
         log.info("[MANUAL ASSIGN] \"{}\" → {} via rule \"{}\"", emailSubject, rule.getRecipientEmail(), rule.getName());
 
@@ -609,7 +610,7 @@ public class EmailProcessingService {
     private void saveEmailLog(UUID userId, String emailFrom, String emailSubject, String forwardedTo,
             UUID ruleMatched, String status, String outlookMessageId, String conversationId,
             boolean aiClassified, Double aiConfidence, String aiReasoning,
-            UUID trackingToken, String receivedDateTime) {
+            UUID trackingToken, String receivedDateTime, String negativeKeywordOverride) {
         EmailLog emailLog = new EmailLog();
         emailLog.setUserId(userId);
         emailLog.setEmailFrom(emailFrom);
@@ -623,6 +624,7 @@ public class EmailProcessingService {
         emailLog.setAiConfidence(aiConfidence);
         emailLog.setAiReasoning(aiReasoning);
         emailLog.setTrackingToken(trackingToken);
+        emailLog.setNegativeKeywordOverride(negativeKeywordOverride);
         if (receivedDateTime != null && !receivedDateTime.isEmpty()) {
             try {
                 emailLog.setReceivedAt(OffsetDateTime.parse(receivedDateTime));

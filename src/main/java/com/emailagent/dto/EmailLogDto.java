@@ -25,4 +25,5 @@ public class EmailLogDto {
     private UUID trackingToken;
     private String replySource;
     private OffsetDateTime receivedAt;
+    private String negativeKeywordOverride;
 }

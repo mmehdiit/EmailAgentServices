@@ -53,6 +53,7 @@ public class EmailLogService {
         dto.setTrackingToken(log.getTrackingToken());
         dto.setReplySource(log.getReplySource());
         dto.setReceivedAt(log.getReceivedAt());
+        dto.setNegativeKeywordOverride(log.getNegativeKeywordOverride());
         return dto;
     }
 }

@@ -72,4 +72,7 @@ public class EmailLog {
 
     @Column(name = "received_at")
     private OffsetDateTime receivedAt;
+
+    @Column(name = "negative_keyword_override")
+    private String negativeKeywordOverride;
 }

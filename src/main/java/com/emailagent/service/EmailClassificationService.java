@@ -44,7 +44,8 @@ public class EmailClassificationService {
             String matchedRuleName,
             double confidence,
             String reasoning,
-            String overrideRecipientEmail
+            String overrideRecipientEmail,
+            String negativeKeywordOverride
     ) {}
 
     public record EmailData(
@@ -88,7 +89,7 @@ public class EmailClassificationService {
                 String overrideEmail = resolveOverrideEmail(r, combinedContent);
                 log.debug("[KEYWORD MATCH] Rule \"{}\" matched directly, skipping AI", r.getName());
                 return new ClassificationResult(
-                        r.getId().toString(), r.getName(), 1.0, "Direct keyword match", overrideEmail
+                        r.getId().toString(), r.getName(), 1.0, "Direct keyword match", overrideEmail, null
                 );
             } else {
                 log.debug("[KEYWORD AMBIGUOUS] Rule \"{}\" has both keyword and exclude keyword match, deferring to AI", r.getName());
@@ -123,7 +124,7 @@ public class EmailClassificationService {
                 .toList();
 
         if (aiRules.isEmpty()) {
-            return new ClassificationResult(null, null, 0, "No rules matched", null);
+            return new ClassificationResult(null, null, 0, "No rules matched", null, null);
         }
 
         String systemPrompt = buildSystemPrompt(aiRules, email);
@@ -156,18 +157,18 @@ public class EmailClassificationService {
 
             if (response.statusCode() == 429) {
                 log.warn("AI rate limit exceeded");
-                return new ClassificationResult(null, null, 0, "AI rate limit exceeded", null);
+                return new ClassificationResult(null, null, 0, "AI rate limit exceeded", null, null);
             }
             if (response.statusCode() != 200) {
                 log.error("AI gateway error {}: {}", response.statusCode(), response.body());
-                return new ClassificationResult(null, null, 0, "AI classification failed", null);
+                return new ClassificationResult(null, null, 0, "AI classification failed", null, null);
             }
 
             JsonNode responseData = objectMapper.readTree(response.body());
             String content = responseData.path("choices").path(0).path("message").path("content").asText("");
 
             if (content.isBlank()) {
-                return new ClassificationResult(null, null, 0, "AI returned empty response", null);
+                return new ClassificationResult(null, null, 0, "AI returned empty response", null, null);
             }
 
             // Clean markdown code blocks if model wraps anyway
@@ -226,17 +227,18 @@ public class EmailClassificationService {
 
                 if (validRule == null) {
                     log.warn("[AI] Invalid rule ID returned: {}", matchedRuleId);
-                    return new ClassificationResult(null, null, 0, "AI returned invalid rule reference", null);
+                    return new ClassificationResult(null, null, 0, "AI returned invalid rule reference", null, null);
                 }
 
                 // Post-guard: double-check exclude keywords weren't violated
                 if (validRule.getNegativeKeywords() != null && validRule.getNegativeKeywords().length > 0) {
-                    boolean postExcluded = Arrays.stream(validRule.getNegativeKeywords())
-                            .anyMatch(nk -> nk != null && !nk.isBlank() &&
-                                    combinedContent.contains(nk.toLowerCase().trim()));
-                    if (postExcluded) {
-                        log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword", validRule.getName());
-                        return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword", null);
+                    String matchedNegKw = Arrays.stream(validRule.getNegativeKeywords())
+                            .filter(nk -> nk != null && !nk.isBlank() &&
+                                    combinedContent.contains(nk.toLowerCase().trim()))
+                            .findFirst().orElse(null);
+                    if (matchedNegKw != null) {
+                        log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword \"{}\"", validRule.getName(), matchedNegKw);
+                        return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword", null, matchedNegKw);
                     }
                 }
 
@@ -247,11 +249,11 @@ public class EmailClassificationService {
             }
 
             log.debug("[AI] Classification: ruleId={}, confidence={}, reasoning={}", matchedRuleId, confidence, reasoning);
-            return new ClassificationResult(matchedRuleId, matchedRuleName, confidence, reasoning, overrideEmail);
+            return new ClassificationResult(matchedRuleId, matchedRuleName, confidence, reasoning, overrideEmail, null);
 
         } catch (Exception e) {
             log.error("Error during AI classification", e);
-            return new ClassificationResult(null, null, 0, "AI classification error: " + e.getMessage(), null);
+            return new ClassificationResult(null, null, 0, "AI classification error: " + e.getMessage(), null, null);
         }
     }
 
