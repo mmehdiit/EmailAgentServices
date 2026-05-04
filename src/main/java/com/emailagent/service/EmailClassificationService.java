@@ -1,14 +1,5 @@
 package com.emailagent.service;
 
-import com.emailagent.model.ForwardingRule;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -16,6 +7,17 @@ import java.net.http.HttpResponse;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import com.emailagent.model.ForwardingRule;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -90,7 +92,7 @@ public class EmailClassificationService {
         try {
             String requestBody = objectMapper.writeValueAsString(Map.of(
                     "model", model,
-                    "format", "json",
+                    "response_format", Map.of("type", "json_object"),
                     "max_tokens", 512,
                     "temperature", 0,
                     "keep_alive", "10m",
