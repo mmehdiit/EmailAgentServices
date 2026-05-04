@@ -58,32 +58,72 @@ public class EmailClassificationService {
     ) {}
 
     public ClassificationResult classify(EmailData email, List<ForwardingRule> rules) {
-        // Filter to AI-enabled rules and apply negative keyword pre-filter
-        String combinedContent = (email.subject() + " " + (email.originalSubject() != null ? email.originalSubject() : "")).toLowerCase();
 
+        // Combined content for keyword matching — subject + body + original subject
+        String combinedContent = (
+                (email.subject() != null ? email.subject() : "") + " " +
+                (email.body() != null ? email.body() : "") + " " +
+                (email.originalSubject() != null ? email.originalSubject() : "")
+        ).toLowerCase();
+
+        // -------------------------------------------------------------------------
+        // STAGE 1: Pure Java keyword matching — no AI involved
+        // If a keyword matches AND no exclude keyword matches → return immediately
+        // -------------------------------------------------------------------------
+        for (ForwardingRule r : rules) {
+            boolean hasKeywordMatch = r.getKeywords() != null && r.getKeywords().length > 0 &&
+                    Arrays.stream(r.getKeywords())
+                            .anyMatch(kw -> kw != null && !kw.isBlank() &&
+                                    combinedContent.contains(kw.toLowerCase().trim()));
+
+            if (!hasKeywordMatch) continue;
+
+            boolean hasExcludeMatch = r.getNegativeKeywords() != null && r.getNegativeKeywords().length > 0 &&
+                    Arrays.stream(r.getNegativeKeywords())
+                            .anyMatch(nk -> nk != null && !nk.isBlank() &&
+                                    combinedContent.contains(nk.toLowerCase().trim()));
+
+            if (!hasExcludeMatch) {
+                // Check special conditions for override recipient
+                String overrideEmail = resolveOverrideEmail(r, combinedContent);
+                log.debug("[KEYWORD MATCH] Rule \"{}\" matched directly, skipping AI", r.getName());
+                return new ClassificationResult(
+                        r.getId().toString(), r.getName(), 1.0, "Direct keyword match", overrideEmail
+                );
+            } else {
+                log.debug("[KEYWORD AMBIGUOUS] Rule \"{}\" has both keyword and exclude keyword match, deferring to AI", r.getName());
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // STAGE 2: AI — only for emails that keyword matching couldn't resolve
+        // Only pass AI-enabled rules, and only their context (no keyword lists)
+        // -------------------------------------------------------------------------
         List<ForwardingRule> aiRules = rules.stream()
                 .filter(ForwardingRule::isAiEnabled)
                 .filter(r -> {
+                    // Drop rules whose exclude keywords clearly apply with no positive override
                     if (r.getNegativeKeywords() == null || r.getNegativeKeywords().length == 0) return true;
                     boolean excluded = Arrays.stream(r.getNegativeKeywords())
-                            .anyMatch(nk -> nk != null && !nk.isBlank() && combinedContent.contains(nk.toLowerCase().trim()));
-                    if (excluded) {
-                        // Check if positive keyword in subject overrides
-                        boolean hasPositiveInSubject = r.getKeywords() != null && Arrays.stream(r.getKeywords())
-                                .anyMatch(kw -> kw != null && !kw.isBlank() && combinedContent.contains(kw.toLowerCase().trim()));
-                        if (hasPositiveInSubject) {
-                            log.debug("[AI PRE-FILTER] Rule \"{}\" negative keyword overridden by subject positive match", r.getName());
-                            return true;
-                        }
-                        log.debug("[AI PRE-FILTER] Rule \"{}\" excluded by negative keyword", r.getName());
-                        return false;
+                            .anyMatch(nk -> nk != null && !nk.isBlank() &&
+                                    combinedContent.contains(nk.toLowerCase().trim()));
+                    if (!excluded) return true;
+                    // Keep if a positive keyword also matches — let AI decide
+                    boolean hasPositiveOverride = r.getKeywords() != null &&
+                            Arrays.stream(r.getKeywords())
+                                    .anyMatch(kw -> kw != null && !kw.isBlank() &&
+                                            combinedContent.contains(kw.toLowerCase().trim()));
+                    if (hasPositiveOverride) {
+                        log.debug("[AI PRE-FILTER] Rule \"{}\" kept for AI — positive keyword overrides exclusion", r.getName());
+                        return true;
                     }
-                    return true;
+                    log.debug("[AI PRE-FILTER] Rule \"{}\" excluded by negative keyword", r.getName());
+                    return false;
                 })
                 .toList();
 
         if (aiRules.isEmpty()) {
-            return new ClassificationResult(null, null, 0, "No AI-enabled rules available", null);
+            return new ClassificationResult(null, null, 0, "No rules matched", null);
         }
 
         String systemPrompt = buildSystemPrompt(aiRules, email);
@@ -130,7 +170,7 @@ public class EmailClassificationService {
                 return new ClassificationResult(null, null, 0, "AI returned empty response", null);
             }
 
-            // Clean markdown code blocks
+            // Clean markdown code blocks if model wraps anyway
             content = content.trim();
             if (content.startsWith("```json")) content = content.substring(7);
             if (content.startsWith("```")) content = content.substring(3);
@@ -141,11 +181,26 @@ public class EmailClassificationService {
                     .with(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES)
                     .with(JsonParser.Feature.ALLOW_SINGLE_QUOTES)
                     .readValue(content);
+
             String matchedRuleIdRaw = classification.hasNonNull("matched_rule_id") ? classification.get("matched_rule_id").asText(null) : null;
             String matchedRuleName = classification.hasNonNull("matched_rule_name") ? classification.get("matched_rule_name").asText(null) : null;
             double confidence = classification.path("confidence").asDouble(0);
             String reasoning = classification.path("reasoning").asText("");
             String overrideEmail = classification.hasNonNull("override_recipient_email") ? classification.get("override_recipient_email").asText(null) : null;
+
+            // Rescue: model returned null but reasoning clearly names a rule
+            if (matchedRuleIdRaw == null && reasoning != null && !reasoning.isBlank()) {
+                String reasoningLower = reasoning.toLowerCase();
+                ForwardingRule rescued = aiRules.stream()
+                        .filter(r -> reasoningLower.contains(r.getName().toLowerCase()))
+                        .findFirst()
+                        .orElse(null);
+                if (rescued != null) {
+                    log.debug("[AI RESCUE] null result rescued from reasoning — matched rule \"{}\"", rescued.getName());
+                    matchedRuleIdRaw = rescued.getId().toString();
+                    matchedRuleName = rescued.getName();
+                }
+            }
 
             // Validate matched rule ID
             String matchedRuleId = matchedRuleIdRaw;
@@ -156,8 +211,8 @@ public class EmailClassificationService {
                         .findFirst()
                         .orElse(null);
 
+                // Fuzzy fallback by name if ID didn't match
                 if (validRule == null && matchedRuleName != null) {
-                    // Fuzzy fallback by name
                     final String nameLower = matchedRuleName.toLowerCase().trim();
                     validRule = aiRules.stream()
                             .filter(r -> r.getName().toLowerCase().trim().equals(nameLower))
@@ -174,14 +229,20 @@ public class EmailClassificationService {
                     return new ClassificationResult(null, null, 0, "AI returned invalid rule reference", null);
                 }
 
-                // Post-validation: check negative keywords against original rules
+                // Post-guard: double-check exclude keywords weren't violated
                 if (validRule.getNegativeKeywords() != null && validRule.getNegativeKeywords().length > 0) {
                     boolean postExcluded = Arrays.stream(validRule.getNegativeKeywords())
-                            .anyMatch(nk -> nk != null && !nk.isBlank() && combinedContent.contains(nk.toLowerCase().trim()));
+                            .anyMatch(nk -> nk != null && !nk.isBlank() &&
+                                    combinedContent.contains(nk.toLowerCase().trim()));
                     if (postExcluded) {
                         log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword", validRule.getName());
                         return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword", null);
                     }
+                }
+
+                // Resolve override email from special conditions if AI didn't provide one
+                if (overrideEmail == null) {
+                    overrideEmail = resolveOverrideEmail(validRule, combinedContent);
                 }
             }
 
@@ -194,57 +255,67 @@ public class EmailClassificationService {
         }
     }
 
+    /**
+     * Checks special conditions for override recipient email.
+     * Currently handles the "collection of vehicle / total loss" condition by text match.
+     * Extend this method as more special conditions are added.
+     */
+    private String resolveOverrideEmail(ForwardingRule rule, String combinedContent) {
+        if (rule.getConditions() == null || rule.getConditions().isBlank()) return null;
+        String conditions = rule.getConditions().toLowerCase();
+        // Extract "always forward to <email>" pattern from conditions
+        if (conditions.contains("always forward to")) {
+            // Check if the trigger phrase is present in the email
+            boolean triggerPresent = combinedContent.contains("collection of total loss") ||
+                    combinedContent.contains("collection of vehicle");
+            if (triggerPresent) {
+                // Extract the email from the conditions string
+                int idx = rule.getConditions().toLowerCase().indexOf("always forward to");
+                String afterKeyword = rule.getConditions().substring(idx + "always forward to".length()).trim();
+                String[] tokens = afterKeyword.split("\\s+");
+                if (tokens.length > 0 && tokens[0].contains("@")) {
+                    return tokens[0];
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * AI stage prompt — only context and intent, no keyword lists.
+     * Keywords already failed at this point; the model should reason semantically.
+     */
     private String buildSystemPrompt(List<ForwardingRule> rules, EmailData email) {
         StringBuilder sb = new StringBuilder();
-        
-        sb.append("<|im_start|>system\n");
-        
-        sb.append("<instructions priority=\"strict\">\n");
-        sb.append("You are an email classification engine. Your ONLY job is to match the given email to one of the rules below.\n");
-        sb.append("You MUST return a valid JSON object. No explanation, no markdown, no extra text.\n");
-        sb.append("You MUST use the exact rule ID and rule name as they appear in the <rules> section.\n");
-        sb.append("NEVER invent or placeholder values. NEVER return \"ID_HERE\" or \"NAME_HERE\".\n");
-        sb.append("</instructions>\n\n");
 
-        sb.append("<rules>\n");
+        sb.append("You are an email classification engine for a motor insurance company.\n");
+        sb.append("Direct keyword matching did not resolve this email. Use semantic understanding to find the best matching rule.\n\n");
+
+        sb.append("RULES:\n");
         for (ForwardingRule r : rules) {
-            sb.append("  <rule id=\"").append(r.getId()).append("\" name=\"").append(r.getName()).append("\">\n");
-            if (r.getKeywords() != null && r.getKeywords().length > 0) {
-                sb.append("    <match_if_contains>").append(String.join(", ", r.getKeywords())).append("</match_if_contains>\n");
-            }
-            if (r.getNegativeKeywords() != null && r.getNegativeKeywords().length > 0) {
-                sb.append("    <skip_if_contains>").append(String.join(", ", r.getNegativeKeywords())).append("</skip_if_contains>\n");
-            }
-            if (r.getSenderPattern() != null && !r.getSenderPattern().isBlank()) {
-                sb.append("    <sender_pattern>").append(r.getSenderPattern()).append("</sender_pattern>\n");
-            }
-            if (r.getSubjectPattern() != null && !r.getSubjectPattern().isBlank()) {
-                sb.append("    <subject_pattern>").append(r.getSubjectPattern()).append("</subject_pattern>\n");
+            sb.append("ID: ").append(r.getId())
+              .append(" | Name: \"").append(r.getName()).append("\"\n");
+            if (r.getAiContext() != null && !r.getAiContext().isBlank()) {
+                sb.append("  Description: ").append(r.getAiContext().trim()).append("\n");
             }
             if (r.getConditions() != null && !r.getConditions().isBlank()) {
-                sb.append("    <special_conditions>").append(r.getConditions()).append("</special_conditions>\n");
+                sb.append("  Special condition: ").append(r.getConditions().trim()).append("\n");
             }
-            if (r.getAiContext() != null && !r.getAiContext().isBlank()) {
-                sb.append("    <context>").append(r.getAiContext()).append("</context>\n");
-            }
-            sb.append("  </rule>\n");
+            sb.append("\n");
         }
-        sb.append("</rules>\n\n");
 
         if (email.isForwarded()) {
-            sb.append("<note>This is a forwarded email. Consider both the outer and original sender/subject.</note>\n\n");
+            sb.append("Note: This is a forwarded email. Consider both the outer and original sender/subject.\n\n");
         }
 
-        sb.append("<output_format>\n");
-        sb.append("Return ONLY a JSON object with these exact fields:\n");
-        sb.append("- matched_rule_id: the exact id attribute from the matched <rule> above, or null\n");
-        sb.append("- matched_rule_name: the exact name attribute from the matched <rule> above, or null\n");
-        sb.append("- confidence: a number between 0.0 and 1.0\n");
-        sb.append("- reasoning: brief explanation\n");
-        sb.append("- override_recipient_email: only set if a special_condition explicitly requires it, otherwise null\n");
-        sb.append("</output_format>\n");
-        
-        sb.append("<|im_end|>");
+        sb.append("Return ONLY a valid JSON object with these exact fields:\n");
+        sb.append("{\n");
+        sb.append("  \"matched_rule_id\": \"<exact ID from the rules above, or null>\",\n");
+        sb.append("  \"matched_rule_name\": \"<exact name from the rules above, or null>\",\n");
+        sb.append("  \"confidence\": <0.0 to 1.0>,\n");
+        sb.append("  \"reasoning\": \"<one sentence>\",\n");
+        sb.append("  \"override_recipient_email\": <email string if special condition applies, otherwise null>\n");
+        sb.append("}");
 
         return sb.toString();
     }
