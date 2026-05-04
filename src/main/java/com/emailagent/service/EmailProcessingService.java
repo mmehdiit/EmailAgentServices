@@ -90,6 +90,8 @@ public class EmailProcessingService {
     private String dataManagementBaseUrl;
 
     private final ConcurrentHashMap<UUID, ReentrantLock> userProcessingLocks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> userLastProcessedAt = new ConcurrentHashMap<>();
+    private static final long MIN_REPROCESS_INTERVAL_MS = 60_000; // 1 minute
     private final RestTemplate ocrRestTemplate = new RestTemplate();
     private String cachedOcrToken;
     private long cachedOcrTokenFetchedAt = 0;
@@ -140,6 +142,13 @@ public class EmailProcessingService {
     private Map<String, Integer> processUserEmails(OutlookConnection connection) {
         UUID userId = connection.getUserId();
 
+        long now = System.currentTimeMillis();
+        Long lastRun = userLastProcessedAt.get(userId);
+        if (lastRun != null && (now - lastRun) < MIN_REPROCESS_INTERVAL_MS) {
+            log.info("Skipping email processing for user {} — last run was {}ms ago", userId, now - lastRun);
+            return Map.of("processed", 0, "forwarded", 0, "ai_classified", 0);
+        }
+
         ReentrantLock lock = userProcessingLocks.computeIfAbsent(userId, k -> new ReentrantLock());
         if (!lock.tryLock()) {
             log.info("Skipping email processing for user {} — already in progress", userId);
@@ -147,6 +156,7 @@ public class EmailProcessingService {
         }
 
         try {
+            userLastProcessedAt.put(userId, now);
             return doProcessUserEmails(connection);
         } finally {
             lock.unlock();
