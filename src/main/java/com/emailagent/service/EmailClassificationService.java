@@ -309,7 +309,7 @@ public class EmailClassificationService {
         if (email.isForwarded()) {
             sb.append("Note: This is a forwarded email. Consider both the outer and original sender/subject.\n\n");
         }
-        sb.append("IMPORTANT: If you identify a matching rule, you MUST populate matched_rule_id with the exact ID string shown above. Returning null for matched_rule_id when a rule matches is incorrect.\n\n");
+        // sb.append("IMPORTANT: If you identify a matching rule, you MUST populate matched_rule_id with the exact ID string shown above. Returning null for matched_rule_id when a rule matches is incorrect.\n\n");
         sb.append("Return ONLY a valid JSON object with these exact fields:\n");
         sb.append("{\n");
         sb.append("  \"matched_rule_id\": \"<exact ID from the rules above, or null>\",\n");
