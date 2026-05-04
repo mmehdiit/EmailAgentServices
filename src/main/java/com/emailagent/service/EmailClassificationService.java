@@ -91,7 +91,7 @@ public class EmailClassificationService {
             String requestBody = objectMapper.writeValueAsString(Map.of(
                     "model", model,
                     "format", "json",
-                    "max_tokens", 256,
+                    "max_tokens", 512,
                     "temperature", 0,
                     "keep_alive", "10m",
                     "messages", List.of(
@@ -190,65 +190,58 @@ public class EmailClassificationService {
     }
 
     private String buildSystemPrompt(List<ForwardingRule> rules, EmailData email) {
-        StringBuilder rulesDesc = new StringBuilder();
-        for (int i = 0; i < rules.size(); i++) {
-            ForwardingRule r = rules.get(i);
-            rulesDesc.append("Rule ").append(i + 1)
-                    .append(" (ID: ").append(r.getId())
-                    .append(", Name: \"").append(r.getName())
-                    .append("\", Priority: ").append(r.getPriority()).append("):\n");
+        StringBuilder sb = new StringBuilder();
+        sb.append("Match the email to the best rule. Return JSON only.\n\n");
+        sb.append("RULES:\n");
+
+        for (ForwardingRule r : rules) {
+            sb.append("ID: ").append(r.getId())
+              .append(" | Name: \"").append(r.getName()).append("\"\n");
             if (r.getKeywords() != null && r.getKeywords().length > 0) {
-                rulesDesc.append("  - Keywords: ").append(String.join(", ", r.getKeywords())).append("\n");
+                sb.append("  Match if email contains: ").append(String.join(", ", r.getKeywords())).append("\n");
             }
             if (r.getNegativeKeywords() != null && r.getNegativeKeywords().length > 0) {
-                rulesDesc.append("  - EXCLUDE if email contains: ").append(String.join(", ", r.getNegativeKeywords())).append("\n");
+                sb.append("  Skip if email contains: ").append(String.join(", ", r.getNegativeKeywords())).append("\n");
             }
             if (r.getSenderPattern() != null) {
-                rulesDesc.append("  - Sender pattern: ").append(r.getSenderPattern()).append("\n");
+                sb.append("  Sender: ").append(r.getSenderPattern()).append("\n");
             }
             if (r.getSubjectPattern() != null) {
-                rulesDesc.append("  - Subject pattern: ").append(r.getSubjectPattern()).append("\n");
+                sb.append("  Subject pattern: ").append(r.getSubjectPattern()).append("\n");
             }
             if (r.getConditions() != null) {
-                rulesDesc.append("  - Conditions: ").append(r.getConditions()).append("\n");
+                sb.append("  Conditions: ").append(r.getConditions()).append("\n");
             }
             if (r.getAiContext() != null) {
-                rulesDesc.append("  - Additional context: ").append(r.getAiContext()).append("\n");
+                sb.append("  Context: ").append(r.getAiContext()).append("\n");
             }
         }
 
-        String forwardedContext = "";
         if (email.isForwarded()) {
-            forwardedContext = "\nIMPORTANT: This is a FORWARDED email.\n" +
-                    "- Original Sender: " + (email.originalSender() != null ? email.originalSender() : "Not detected") + "\n" +
-                    "- Original Subject: " + (email.originalSubject() != null ? email.originalSubject() : "Not detected") + "\n" +
-                    "- Original Date: " + (email.originalDate() != null ? email.originalDate() : "Not detected") + "\n";
+            sb.append("\nNote: This is a forwarded email. The original sender and subject are provided.\n");
         }
 
-        return "You are an email classification assistant for an insurance company in the UAE. " +
-                "Analyze incoming emails and determine which forwarding rule best matches.\n\n" +
-                "IMPORTANT: Focus on the LATEST message in a thread. Older quoted messages may contain keywords for different rules - IGNORE those.\n" +
-                "Only match if confidence > 0.7. Return null if no good match or if email is unrelated to insurance.\n\n" +
-                forwardedContext +
-                "Available rules:\n" + rulesDesc +
-                "\nRespond with valid JSON only, using this exact structure:\n" +
-                "{\"matched_rule_id\": \"<rule id or null>\", \"matched_rule_name\": \"<rule name or null>\", \"confidence\": 0.0, \"reasoning\": \"<explanation>\", \"override_recipient_email\": null}";
+        sb.append("\nReturn ONLY this JSON (replace values, keep structure):\n");
+        sb.append("{\"matched_rule_id\": \"ID_HERE\", \"matched_rule_name\": \"NAME_HERE\", \"confidence\": 0.9, \"reasoning\": \"why it matches\", \"override_recipient_email\": null}\n");
+        sb.append("\nIf no rule matches, return:\n");
+        sb.append("{\"matched_rule_id\": null, \"matched_rule_name\": null, \"confidence\": 0.0, \"reasoning\": \"no match\", \"override_recipient_email\": null}");
+
+        return sb.toString();
     }
 
     private String buildUserPrompt(EmailData email) {
         StringBuilder sb = new StringBuilder();
-        sb.append("FROM: ").append(email.sender()).append("\n");
-        sb.append("SUBJECT: ").append(email.subject()).append("\n");
+        sb.append("From: ").append(email.sender()).append("\n");
+        sb.append("Subject: ").append(email.subject()).append("\n");
         if (email.isForwarded()) {
-            sb.append("\n--- FORWARDED EMAIL ---\n");
             sb.append("Original Sender: ").append(email.originalSender()).append("\n");
             sb.append("Original Subject: ").append(email.originalSubject()).append("\n");
         }
-        sb.append("\nFULL EMAIL BODY:\n");
+        sb.append("\n");
         String body = email.body();
-        if (body != null && body.length() > 1500) body = body.substring(0, 1500);
+        if (body != null && body.length() > 1200) body = body.substring(0, 1200);
         sb.append(body);
-        sb.append("\n\nRespond with valid JSON only.");
+        sb.append("\n\nJSON:");
         return sb.toString();
     }
 }
