@@ -102,6 +102,8 @@ public class EmailClassificationService {
                     )
             ));
 
+            log.debug("[AI REQUEST] {}", requestBody);
+
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(gatewayUrl))
                     .header("Authorization", "Bearer " + apiKey)
@@ -110,6 +112,7 @@ public class EmailClassificationService {
                     .build();
 
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            log.debug("[AI RESPONSE] status={} body={}", response.statusCode(), response.body());
 
             if (response.statusCode() == 429) {
                 log.warn("AI rate limit exceeded");
