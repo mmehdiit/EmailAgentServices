@@ -187,6 +187,7 @@ public class EmailProcessingService {
 
         int processed = 0, forwarded = 0, aiClassified = 0;
         String integratedEmail = connection.getEmailAddress() != null ? connection.getEmailAddress().toLowerCase() : "";
+        Set<String> processedInThisRun = new HashSet<>();
 
         for (JsonNode email : emails) {
             try {
@@ -194,11 +195,13 @@ public class EmailProcessingService {
                 String emailSubject = email.path("subject").asText("");
                 String emailFrom = email.path("from").path("emailAddress").path("address").asText("");
 
-                // Skip if already processed
-                if (emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
+                // Skip if already processed (DB check) or seen earlier in this same batch
+                if (processedInThisRun.contains(outlookMessageId)
+                        || emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
                     log.debug("[SKIP] Already processed: {}", emailSubject);
                     continue;
                 }
+                processedInThisRun.add(outlookMessageId);
 
                 // CC detection: if integrated account is in CC, mark as read and skip
                 JsonNode ccRecipients = email.path("ccRecipients");
