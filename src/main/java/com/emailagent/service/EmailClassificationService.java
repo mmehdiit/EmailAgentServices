@@ -223,13 +223,13 @@ public class EmailClassificationService {
             sb.append("\nNote: This is a forwarded email. The original sender and subject are provided.\n");
         }
 
-        sb.append("\nReturn ONLY this JSON (replace values, keep structure):\n");
-        sb.append("{\"matched_rule_id\": \"ID_HERE\", \"matched_rule_name\": \"NAME_HERE\", \"confidence\": 0.9, \"reasoning\": \"why it matches\", \"override_recipient_email\": null}\n");
-        sb.append("\nIf no rule matches, return:\n");
-        sb.append("{\"matched_rule_id\": null, \"matched_rule_name\": null, \"confidence\": 0.0, \"reasoning\": \"no match\", \"override_recipient_email\": null}");
-
-        return sb.toString();
-    }
+        sb.append("\nReturn ONLY a JSON object. Use the actual rule ID and name from the list above.\n");
+        sb.append("If a rule matches:\n");
+        sb.append("{\"matched_rule_id\": \"c72a2e09-753a-46f7-bd85-1ffd2f0b4633\", \"matched_rule_name\": \"New Claims\", \"confidence\": 0.85, \"reasoning\": \"email mentions accident and plate number\", \"override_recipient_email\": null}\n");
+        sb.append("\nIf no rule matches:\n");
+        sb.append("{\"matched_rule_id\": null, \"matched_rule_name\": null, \"confidence\": 0.0, \"reasoning\": \"no rule fits\", \"override_recipient_email\": null}");
+                return sb.toString();
+            }
 
     private String buildUserPrompt(EmailData email) {
         StringBuilder sb = new StringBuilder();
