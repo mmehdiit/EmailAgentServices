@@ -196,43 +196,58 @@ public class EmailClassificationService {
 
     private String buildSystemPrompt(List<ForwardingRule> rules, EmailData email) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Match the email to the best rule. Return JSON only.\n\n");
-        sb.append("RULES:\n");
+        
+        sb.append("<|im_start|>system\n");
+        
+        sb.append("<instructions priority=\"strict\">\n");
+        sb.append("You are an email classification engine. Your ONLY job is to match the given email to one of the rules below.\n");
+        sb.append("You MUST return a valid JSON object. No explanation, no markdown, no extra text.\n");
+        sb.append("You MUST use the exact rule ID and rule name as they appear in the <rules> section.\n");
+        sb.append("NEVER invent or placeholder values. NEVER return \"ID_HERE\" or \"NAME_HERE\".\n");
+        sb.append("</instructions>\n\n");
 
+        sb.append("<rules>\n");
         for (ForwardingRule r : rules) {
-            sb.append("ID: ").append(r.getId())
-              .append(" | Name: \"").append(r.getName()).append("\"\n");
+            sb.append("  <rule id=\"").append(r.getId()).append("\" name=\"").append(r.getName()).append("\">\n");
             if (r.getKeywords() != null && r.getKeywords().length > 0) {
-                sb.append("  Match if email contains: ").append(String.join(", ", r.getKeywords())).append("\n");
+                sb.append("    <match_if_contains>").append(String.join(", ", r.getKeywords())).append("</match_if_contains>\n");
             }
             if (r.getNegativeKeywords() != null && r.getNegativeKeywords().length > 0) {
-                sb.append("  Skip if email contains: ").append(String.join(", ", r.getNegativeKeywords())).append("\n");
+                sb.append("    <skip_if_contains>").append(String.join(", ", r.getNegativeKeywords())).append("</skip_if_contains>\n");
             }
-            if (r.getSenderPattern() != null) {
-                sb.append("  Sender: ").append(r.getSenderPattern()).append("\n");
+            if (r.getSenderPattern() != null && !r.getSenderPattern().isBlank()) {
+                sb.append("    <sender_pattern>").append(r.getSenderPattern()).append("</sender_pattern>\n");
             }
-            if (r.getSubjectPattern() != null) {
-                sb.append("  Subject pattern: ").append(r.getSubjectPattern()).append("\n");
+            if (r.getSubjectPattern() != null && !r.getSubjectPattern().isBlank()) {
+                sb.append("    <subject_pattern>").append(r.getSubjectPattern()).append("</subject_pattern>\n");
             }
-            if (r.getConditions() != null) {
-                sb.append("  Conditions: ").append(r.getConditions()).append("\n");
+            if (r.getConditions() != null && !r.getConditions().isBlank()) {
+                sb.append("    <special_conditions>").append(r.getConditions()).append("</special_conditions>\n");
             }
-            if (r.getAiContext() != null) {
-                sb.append("  Context: ").append(r.getAiContext()).append("\n");
+            if (r.getAiContext() != null && !r.getAiContext().isBlank()) {
+                sb.append("    <context>").append(r.getAiContext()).append("</context>\n");
             }
+            sb.append("  </rule>\n");
         }
+        sb.append("</rules>\n\n");
 
         if (email.isForwarded()) {
-            sb.append("\nNote: This is a forwarded email. The original sender and subject are provided.\n");
+            sb.append("<note>This is a forwarded email. Consider both the outer and original sender/subject.</note>\n\n");
         }
 
-        sb.append("\nReturn ONLY a JSON object. Use the actual rule ID and name from the list above.\n");
-        sb.append("If a rule matches:\n");
-        sb.append("{\"matched_rule_id\": \"c72a2e09-753a-46f7-bd85-1ffd2f0b4633\", \"matched_rule_name\": \"New Claims\", \"confidence\": 0.85, \"reasoning\": \"email mentions accident and plate number\", \"override_recipient_email\": null}\n");
-        sb.append("\nIf no rule matches:\n");
-        sb.append("{\"matched_rule_id\": null, \"matched_rule_name\": null, \"confidence\": 0.0, \"reasoning\": \"no rule fits\", \"override_recipient_email\": null}");
-                return sb.toString();
-            }
+        sb.append("<output_format>\n");
+        sb.append("Return ONLY a JSON object with these exact fields:\n");
+        sb.append("- matched_rule_id: the exact id attribute from the matched <rule> above, or null\n");
+        sb.append("- matched_rule_name: the exact name attribute from the matched <rule> above, or null\n");
+        sb.append("- confidence: a number between 0.0 and 1.0\n");
+        sb.append("- reasoning: brief explanation\n");
+        sb.append("- override_recipient_email: only set if a special_condition explicitly requires it, otherwise null\n");
+        sb.append("</output_format>\n");
+        
+        sb.append("<|im_end|>");
+
+        return sb.toString();
+    }
 
     private String buildUserPrompt(EmailData email) {
         StringBuilder sb = new StringBuilder();
