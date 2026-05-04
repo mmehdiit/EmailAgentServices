@@ -205,9 +205,14 @@ public class EmailProcessingService {
                 String emailSubject = email.path("subject").asText("");
                 String emailFrom = email.path("from").path("emailAddress").path("address").asText("");
 
-                // Skip if already processed (DB check) or seen earlier in this same batch
-                if (processedInThisRun.contains(outlookMessageId)
-                        || emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
+                // Skip if seen earlier in this batch (in-memory, avoids DB call)
+                if (processedInThisRun.contains(outlookMessageId)) {
+                    log.debug("[SKIP] Duplicate in batch: {}", emailSubject);
+                    continue;
+                }
+                // Skip if already logged in DB from a previous run
+                if (emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
+                    processedInThisRun.add(outlookMessageId); // prevent repeated DB lookups for same ID
                     log.debug("[SKIP] Already processed: {}", emailSubject);
                     continue;
                 }
