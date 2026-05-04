@@ -13,7 +13,7 @@
 
     <groupId>com.emailagent</groupId>
     <artifactId>email-agent-services</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
     <name>EmailAgentServices</name>
     <description>Email AI Agent Spring Boot Backend</description>
 
