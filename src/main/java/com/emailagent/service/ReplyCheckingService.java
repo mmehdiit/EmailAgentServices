@@ -1,23 +1,26 @@
 package com.emailagent.service;
 
-import com.emailagent.exception.ApiException;
-import com.emailagent.model.EmailLog;
-import com.emailagent.model.OutlookConnection;
-import com.emailagent.repository.EmailLogRepository;
-import com.emailagent.repository.OutlookConnectionRepository;
-import com.fasterxml.jackson.databind.JsonNode;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.emailagent.exception.ApiException;
+import com.emailagent.model.EmailLog;
+import com.emailagent.model.OutlookConnection;
+import com.emailagent.repository.EmailLogRepository;
+import com.emailagent.repository.OutlookConnectionRepository;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -28,8 +31,16 @@ public class ReplyCheckingService {
     private final EmailLogRepository emailLogRepository;
     private final OutlookService outlookService;
 
-    @Scheduled(cron = "${app.reply-check.cron:0 */10 * * * *}")
+    @Value("${app.reply-check.enabled}")
+    private boolean processingEnabled;
+
+    @Scheduled(cron = "${app.reply-check.cron}")
     public void scheduledCheckReplies() {
+        if (!processingEnabled) {
+            log.info("Scheduled reply detection is disabled. Skipping...");
+            return;
+        }
+
         log.info("Starting scheduled reply detection...");
         checkRepliesForAllUsers();
     }
@@ -67,12 +78,14 @@ public class ReplyCheckingService {
         List<EmailLog> pendingLogs = emailLogRepository
                 .findByUserIdAndStatusAndReplyDetectedFalseAndOutlookConversationIdIsNotNull(userId, "forwarded");
 
-        if (pendingLogs.isEmpty()) return new int[]{0, 0};
+        if (pendingLogs.isEmpty())
+            return new int[] { 0, 0 };
 
         log.info("Checking {} forwarded emails for replies for user {}", pendingLogs.size(), userId);
 
         // Get sent items from last 7 days
-        String sevenDaysAgo = OffsetDateTime.now(ZoneOffset.UTC).minusDays(7).truncatedTo(ChronoUnit.SECONDS).toString();
+        String sevenDaysAgo = OffsetDateTime.now(ZoneOffset.UTC).minusDays(7).truncatedTo(ChronoUnit.SECONDS)
+                .toString();
         JsonNode sentData = outlookService.callGraphApi(accessToken,
                 "mailFolders/sentitems/messages?$filter=sentDateTime ge " + sevenDaysAgo +
                         "&$top=100&$orderby=sentDateTime desc&$select=id,toRecipients,sentDateTime,conversationId");
@@ -87,7 +100,8 @@ public class ReplyCheckingService {
                 boolean recipientMatch = false;
                 for (JsonNode r : toRecipients) {
                     if (pending.getEmailFrom() != null &&
-                            pending.getEmailFrom().equalsIgnoreCase(r.path("emailAddress").path("address").asText(""))) {
+                            pending.getEmailFrom()
+                                    .equalsIgnoreCase(r.path("emailAddress").path("address").asText(""))) {
                         recipientMatch = true;
                         break;
                     }
@@ -98,7 +112,8 @@ public class ReplyCheckingService {
                 if (recipientMatch && conversationMatch) {
                     pending.setReplyDetected(true);
                     String sentDateTime = sent.path("sentDateTime").asText(null);
-                    pending.setRepliedAt(sentDateTime != null ? OffsetDateTime.parse(sentDateTime) : OffsetDateTime.now());
+                    pending.setRepliedAt(
+                            sentDateTime != null ? OffsetDateTime.parse(sentDateTime) : OffsetDateTime.now());
                     pending.setReplySource("sent_folder");
                     emailLogRepository.save(pending);
                     detected++;
@@ -124,7 +139,8 @@ public class ReplyCheckingService {
                         break;
                     }
                 }
-                if (!isCC) continue;
+                if (!isCC)
+                    continue;
 
                 for (JsonNode toRec : email.path("toRecipients")) {
                     String toEmail = toRec.path("emailAddress").path("address").asText("").toLowerCase();
@@ -133,7 +149,8 @@ public class ReplyCheckingService {
                                 pending.getEmailFrom().toLowerCase().equals(toEmail)) {
                             pending.setReplyDetected(true);
                             String receivedAt = email.path("receivedDateTime").asText(null);
-                            pending.setRepliedAt(receivedAt != null ? OffsetDateTime.parse(receivedAt) : OffsetDateTime.now());
+                            pending.setRepliedAt(
+                                    receivedAt != null ? OffsetDateTime.parse(receivedAt) : OffsetDateTime.now());
                             pending.setReplySource("cc_detection");
                             emailLogRepository.save(pending);
                             detected++;
@@ -145,7 +162,7 @@ public class ReplyCheckingService {
             }
         }
 
-        return new int[]{checked, detected};
+        return new int[] { checked, detected };
     }
 
     @Transactional
