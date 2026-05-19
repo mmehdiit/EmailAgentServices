@@ -38,6 +38,9 @@ public class OutlookService {
     @Value("${microsoft.client-secret}")
     private String clientSecret;
 
+    @Value("${microsoft.tenant-id}")
+    private String tenantId;
+
     @Value("${microsoft.redirect-uri}")
     private String defaultRedirectUri;
 
@@ -51,7 +54,7 @@ public class OutlookService {
         String redirectUri = providedRedirectUri != null ? providedRedirectUri
                 : (frontendOrigin != null ? frontendOrigin.replaceAll("/$", "") + "/dashboard" : defaultRedirectUri);
 
-        String url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize" +
+        String url = "https://login.microsoftonline.com/" + tenantId + "/oauth2/v2.0/authorize" +
                 "?client_id=" + encode(clientId) +
                 "&response_type=code" +
                 "&redirect_uri=" + encode(redirectUri) +
@@ -82,7 +85,7 @@ public class OutlookService {
                     .collect(Collectors.joining("&"));
 
             HttpRequest tokenRequest = HttpRequest.newBuilder()
-                    .uri(URI.create("https://login.microsoftonline.com/common/oauth2/v2.0/token"))
+                    .uri(URI.create("https://login.microsoftonline.com/" + tenantId + "/oauth2/v2.0/token"))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(formBody))
                     .build();
@@ -177,7 +180,7 @@ public class OutlookService {
                     .collect(Collectors.joining("&"));
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://login.microsoftonline.com/common/oauth2/v2.0/token"))
+                    .uri(URI.create("https://login.microsoftonline.com/" + tenantId + "/oauth2/v2.0/token"))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(formBody))
                     .build();
