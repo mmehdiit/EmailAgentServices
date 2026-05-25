@@ -259,34 +259,39 @@ public class EmailProcessingService {
                 if (hasAttachments
                         && (policeReportAttachment = hasPoliceReportAttachment(accessToken,
                                 outlookMessageId)) != null) {
-                    log.info("[POLICE REPORT] Detected police report in email: {}", emailSubject);
-                    try {
-                        NewNotificationByReportResponse notificationResponse = createCarNotificationByPoliceReport(
-                                policeReportAttachment.reportDto());
-                        log.info("[POLICE REPORT] Successfully created car notification - ID: {}, Report: {}",
-                                notificationResponse.getNotificationId(), notificationResponse.getReportNumber());
+                    if (policeReportAttachment != null && policeReportAttachment.reportDto() != null) {
+                        log.info("[POLICE REPORT] Detected police report in email: {}", emailSubject);
+                        try {
+                            NewNotificationByReportResponse notificationResponse = createCarNotificationByPoliceReport(
+                                    policeReportAttachment.reportDto());
+                            log.info("[POLICE REPORT] Successfully created car notification - ID: {}, Report: {}",
+                                    notificationResponse.getNotificationId(), notificationResponse.getReportNumber());
 
-                        policeReportVisa = notificationResponse.getNotificationVisa();
+                            policeReportVisa = notificationResponse.getNotificationVisa();
 
-                        // If report number is empty, call the data management API
-                        if (notificationResponse.getReportNumber() == null
-                                || notificationResponse.getReportNumber().trim().isEmpty()) {
-                            log.info(
-                                    "[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
-                                    notificationResponse.getCarId());
-                            try {
-                                processPoliceReportAutomation(notificationResponse.getCarId(),
-                                        policeReportAttachment.fileBytes(), policeReportAttachment.fileName());
+                            // If report number is empty, call the data management API
+                            if (notificationResponse.getReportNumber() == null
+                                    || notificationResponse.getReportNumber().trim().isEmpty()) {
                                 log.info(
-                                        "[POLICE REPORT] Successfully processed police report automation for carId: {}",
+                                        "[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
                                         notificationResponse.getCarId());
-                            } catch (Exception e) {
-                                log.error("[POLICE REPORT] Failed to process police report automation for carId: {}",
-                                        notificationResponse.getCarId(), e);
+                                try {
+                                    processPoliceReportAutomation(notificationResponse.getCarId(),
+                                            policeReportAttachment.fileBytes(), policeReportAttachment.fileName());
+                                    log.info(
+                                            "[POLICE REPORT] Successfully processed police report automation for carId: {}",
+                                            notificationResponse.getCarId());
+                                } catch (Exception e) {
+                                    log.error(
+                                            "[POLICE REPORT] Failed to process police report automation for carId: {}",
+                                            notificationResponse.getCarId(), e);
+                                }
                             }
+
+                        } catch (Exception e) {
+                            log.error("[POLICE REPORT] Failed to create car notification for email: {}", emailSubject,
+                                    e);
                         }
-                    } catch (Exception e) {
-                        log.error("[POLICE REPORT] Failed to create car notification for email: {}", emailSubject, e);
                     }
                 }
 
@@ -604,7 +609,8 @@ public class EmailProcessingService {
 
         log.info("[MANUAL ASSIGN] \"{}\" → {} via rule \"{}\"", emailSubject, rule.getRecipientEmail(), rule.getName());
 
-        notifyUser(effectiveUserId, "email_forwarded", Map.of("subject", emailSubject, "forwardedTo", rule.getRecipientEmail()));
+        notifyUser(effectiveUserId, "email_forwarded",
+                Map.of("subject", emailSubject, "forwardedTo", rule.getRecipientEmail()));
     }
 
     @Transactional
@@ -887,46 +893,50 @@ public class EmailProcessingService {
             JsonNode attachments = attachmentsData.path("value");
 
             for (JsonNode attachment : attachments) {
-                String attachmentId = attachment.path("id").asText("");
-                String fileName = attachment.path("name").asText("attachment");
-                String contentType = attachment.path("contentType").asText("application/octet-stream");
+                try {
+                    String attachmentId = attachment.path("id").asText("");
+                    String fileName = attachment.path("name").asText("attachment");
+                    String contentType = attachment.path("contentType").asText("application/octet-stream");
 
-                if (attachmentId.isEmpty())
-                    continue;
+                    if (attachmentId.isEmpty())
+                        continue;
 
-                JsonNode fullAttachment = outlookService.callGraphApi(accessToken,
-                        "messages/" + messageId + "/attachments/" + attachmentId);
-                String contentBytesBase64 = fullAttachment.path("contentBytes").asText("");
-                if (contentBytesBase64.isEmpty())
-                    continue;
+                    JsonNode fullAttachment = outlookService.callGraphApi(accessToken,
+                            "messages/" + messageId + "/attachments/" + attachmentId);
+                    String contentBytesBase64 = fullAttachment.path("contentBytes").asText("");
+                    if (contentBytesBase64.isEmpty())
+                        continue;
 
-                byte[] fileBytes = java.util.Base64.getDecoder().decode(contentBytesBase64);
+                    byte[] fileBytes = java.util.Base64.getDecoder().decode(contentBytesBase64);
 
-                MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-                body.add("file", new ByteArrayResource(fileBytes) {
-                    @Override
-                    public String getFilename() {
-                        return fileName;
+                    MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+                    body.add("file", new ByteArrayResource(fileBytes) {
+                        @Override
+                        public String getFilename() {
+                            return fileName;
+                        }
+                    });
+                    body.add("docType", "police-report");
+
+                    HttpHeaders headers = new HttpHeaders();
+                    headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+                    headers.setBearerAuth(bearerToken);
+                    HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+
+                    ResponseEntity<String> response = ocrRestTemplate.postForEntity(
+                            ocrBaseUrl + "/v1/api/ai-gateway/ocr/upload", requestEntity, String.class);
+                    String responseBody = response.getBody();
+
+                    if (responseBody == null)
+                        continue;
+
+                    PoliceReportDto ocrResult = objectMapper.readValue(responseBody, PoliceReportDto.class);
+                    if ("police-report".equals(ocrResult.getMeta().getDocumentType())) {
+                        log.info("[OCR] Police report found in attachment: {}", fileName);
+                        return new PoliceReportAttachment(ocrResult, fileBytes, fileName);
                     }
-                });
-                body.add("docType", "police-report");
-
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-                headers.setBearerAuth(bearerToken);
-                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-
-                ResponseEntity<String> response = ocrRestTemplate.postForEntity(
-                        ocrBaseUrl + "/v1/api/ai-gateway/ocr/upload", requestEntity, String.class);
-                String responseBody = response.getBody();
-
-                if (responseBody == null)
-                    continue;
-
-                PoliceReportDto ocrResult = objectMapper.readValue(responseBody, PoliceReportDto.class);
-                if ("police-report".equals(ocrResult.getMeta().getDocumentType())) {
-                    log.info("[OCR] Police report found in attachment: {}", fileName);
-                    return new PoliceReportAttachment(ocrResult, fileBytes, fileName);
+                } catch (Exception e) {
+                    log.warn("[OCR] Failed to classify attachments for message {}: {}", messageId, e.getMessage());
                 }
             }
         } catch (Exception e) {
