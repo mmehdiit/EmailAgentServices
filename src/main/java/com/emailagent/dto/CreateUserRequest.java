@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.UUID;
+
 @Data
 public class CreateUserRequest {
     @NotBlank
@@ -16,4 +18,6 @@ public class CreateUserRequest {
     private String password;
 
     private String role = "user";
+
+    private UUID departmentId;
 }

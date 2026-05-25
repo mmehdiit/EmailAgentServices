@@ -2,7 +2,10 @@ package com.emailagent.service;
 
 import com.emailagent.exception.ApiException;
 import com.emailagent.model.OutlookConnection;
+import com.emailagent.model.User;
 import com.emailagent.repository.OutlookConnectionRepository;
+import com.emailagent.repository.UserRepository;
+import com.emailagent.repository.UserRoleRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +33,8 @@ import java.util.stream.Collectors;
 public class OutlookService {
 
     private final OutlookConnectionRepository connectionRepository;
+    private final UserRepository userRepository;
+    private final UserRoleRepository userRoleRepository;
     private final ObjectMapper objectMapper;
 
     @Value("${microsoft.client-id}")
@@ -148,13 +153,28 @@ public class OutlookService {
         connectionRepository.deleteByUserId(userId);
     }
 
-    /**
-     * Ensures the access token is valid, refreshing if necessary.
-     */
     @Transactional
     public String getValidAccessToken(UUID userId) {
-        OutlookConnection connection = connectionRepository.findByUserId(userId)
-                .orElseThrow(() -> ApiException.badRequest("No Outlook connection found"));
+        String role = userRoleRepository.findByUserId(userId)
+                .map(ur -> ur.getRole())
+                .orElse("user");
+
+        UUID tokenOwnerId = userId;
+
+        if ("user".equals(role)) {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> ApiException.badRequest("User not found"));
+            if (user.getDepartmentId() == null) {
+                throw ApiException.badRequest("User is not assigned to a department");
+            }
+            User admin = userRepository.findAdminByDepartmentId(user.getDepartmentId())
+                    .orElseThrow(() -> ApiException.badRequest("No admin found for department"));
+            tokenOwnerId = admin.getId();
+            log.debug("User {} resolved to department admin {} for token access", userId, tokenOwnerId);
+        }
+
+        OutlookConnection connection = connectionRepository.findByUserId(tokenOwnerId)
+                .orElseThrow(() -> ApiException.badRequest("No Outlook connection found for department admin"));
 
         if (connection.getTokenExpiry().isAfter(OffsetDateTime.now().plusMinutes(5))) {
             return connection.getAccessToken();

@@ -6,6 +6,7 @@ import com.emailagent.dto.LoginResponse;
 import com.emailagent.exception.ApiException;
 import com.emailagent.model.User;
 import com.emailagent.model.UserRole;
+import com.emailagent.repository.DepartmentRepository;
 import com.emailagent.repository.UserRepository;
 import com.emailagent.repository.UserRoleRepository;
 import com.emailagent.security.JwtTokenProvider;
@@ -15,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -24,6 +26,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
+    private final DepartmentRepository departmentRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
@@ -54,17 +57,29 @@ public class AuthService {
             throw ApiException.badRequest("User with this email already exists");
         }
 
+        String assignedRole = request.getRole() != null ? request.getRole() : "user";
+
+        if (request.getDepartmentId() != null) {
+            departmentRepository.findById(request.getDepartmentId())
+                    .orElseThrow(() -> ApiException.badRequest("Department not found"));
+
+            if ("admin".equals(assignedRole) && userRepository.existsAdminInDepartment(request.getDepartmentId())) {
+                throw ApiException.badRequest("Department already has an admin assigned");
+            }
+        }
+
         User user = new User();
         user.setEmail(request.getEmail());
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setDepartmentId(request.getDepartmentId());
         userRepository.save(user);
 
         UserRole role = new UserRole();
         role.setUserId(user.getId());
-        role.setRole(request.getRole() != null ? request.getRole() : "user");
+        role.setRole(assignedRole);
         userRoleRepository.save(role);
 
-        log.info("Created user {} with role {}", user.getEmail(), role.getRole());
+        log.info("Created user {} with role {} in department {}", user.getEmail(), role.getRole(), user.getDepartmentId());
 
         String token = jwtTokenProvider.generateToken(user.getId(), user.getEmail());
         return new LoginResponse(token, user.getId(), user.getEmail(), role.getRole());

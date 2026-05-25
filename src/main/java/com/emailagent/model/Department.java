@@ -11,8 +11,8 @@ import java.util.UUID;
 @Data
 @NoArgsConstructor
 @Entity
-@Table(name = "users")
-public class User {
+@Table(name = "departments")
+public class Department {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -20,13 +20,7 @@ public class User {
     private UUID id;
 
     @Column(nullable = false, unique = true)
-    private String email;
-
-    @Column(name = "password_hash", nullable = false)
-    private String passwordHash;
-
-    @Column(name = "department_id", columnDefinition = "uuid")
-    private UUID departmentId;
+    private String name;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
