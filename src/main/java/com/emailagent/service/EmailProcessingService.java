@@ -17,8 +17,8 @@ import java.util.regex.Pattern;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -37,10 +37,13 @@ import com.emailagent.model.EmailLog;
 import com.emailagent.model.ForwardingRule;
 import com.emailagent.model.OutlookConnection;
 import com.emailagent.model.RuleRecipient;
+import com.emailagent.model.User;
 import com.emailagent.repository.EmailLogRepository;
 import com.emailagent.repository.ForwardingRuleRepository;
 import com.emailagent.repository.OutlookConnectionRepository;
 import com.emailagent.repository.RuleRecipientRepository;
+import com.emailagent.repository.UserRepository;
+import com.emailagent.repository.UserRoleRepository;
 import com.emailagent.service.EmailClassificationService.ClassificationResult;
 import com.emailagent.service.EmailClassificationService.EmailData;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -58,6 +61,8 @@ public class EmailProcessingService {
     private final ForwardingRuleRepository ruleRepository;
     private final RuleRecipientRepository recipientRepository;
     private final EmailLogRepository emailLogRepository;
+    private final UserRepository userRepository;
+    private final UserRoleRepository userRoleRepository;
     private final OutlookService outlookService;
     private final EmailClassificationService classificationService;
     private final ObjectMapper objectMapper;
@@ -210,8 +215,10 @@ public class EmailProcessingService {
                     log.debug("[SKIP] Duplicate in batch: {}", emailSubject);
                     continue;
                 }
-                // Skip only if already successfully forwarded — failed/no_match emails must be retried
-                if (emailLogRepository.existsByOutlookMessageIdAndUserIdAndStatus(outlookMessageId, userId, "forwarded")) {
+                // Skip only if already successfully forwarded — failed/no_match emails must be
+                // retried
+                if (emailLogRepository.existsByOutlookMessageIdAndUserIdAndStatus(outlookMessageId, userId,
+                        "forwarded")) {
                     processedInThisRun.add(outlookMessageId);
                     log.debug("[SKIP] Already forwarded: {}", emailSubject);
                     continue;
@@ -401,7 +408,8 @@ public class EmailProcessingService {
 
             boolean hasCriteria = (rule.getSenderPattern() != null && !rule.getSenderPattern().isBlank())
                     || (rule.getSubjectPattern() != null && !rule.getSubjectPattern().isBlank())
-                    || (rule.getKeywords() != null && Arrays.stream(rule.getKeywords()).anyMatch(kw -> kw != null && !kw.isBlank()));
+                    || (rule.getKeywords() != null
+                            && Arrays.stream(rule.getKeywords()).anyMatch(kw -> kw != null && !kw.isBlank()));
             if (!hasCriteria)
                 continue;
 
@@ -550,12 +558,13 @@ public class EmailProcessingService {
 
     @Transactional
     public void manualAssign(UUID userId, String outlookMessageId, UUID ruleId) {
+        UUID effectiveUserId = resolveEffectiveUserId(userId);
         String accessToken = outlookService.getValidAccessToken(userId);
 
-        ForwardingRule rule = ruleRepository.findByIdAndUserId(ruleId, userId)
+        ForwardingRule rule = ruleRepository.findByIdAndUserId(ruleId, effectiveUserId)
                 .orElseThrow(() -> new RuntimeException("Rule not found"));
 
-        OutlookConnection connection = connectionRepository.findByUserId(userId)
+        OutlookConnection connection = connectionRepository.findByUserId(effectiveUserId)
                 .orElseThrow(() -> new RuntimeException("No Outlook connection"));
 
         // Fetch email details
@@ -580,7 +589,7 @@ public class EmailProcessingService {
 
         // Remove any existing no_match/failed log for this message
         emailLogRepository.deleteByOutlookMessageIdAndUserIdAndStatusIn(
-                outlookMessageId, userId, List.of("no_match", "failed"));
+                outlookMessageId, effectiveUserId, List.of("no_match", "failed"));
 
         // Forward
         outlookService.forwardMessage(accessToken, outlookMessageId, rule.getRecipientEmail(), replyNote);
@@ -589,21 +598,21 @@ public class EmailProcessingService {
         markEmailRead(accessToken, outlookMessageId);
 
         // Log
-        saveEmailLog(userId, emailFrom, emailSubject, rule.getRecipientEmail(), rule.getId(), "forwarded",
+        saveEmailLog(effectiveUserId, emailFrom, emailSubject, rule.getRecipientEmail(), rule.getId(), "forwarded",
                 outlookMessageId, conversationId, false, null,
                 "Manually assigned by user", trackingToken, receivedDateTime, null);
 
         log.info("[MANUAL ASSIGN] \"{}\" → {} via rule \"{}\"", emailSubject, rule.getRecipientEmail(), rule.getName());
 
-        notifyUser(userId, "email_forwarded", Map.of("subject", emailSubject, "forwardedTo", rule.getRecipientEmail()));
+        notifyUser(effectiveUserId, "email_forwarded", Map.of("subject", emailSubject, "forwardedTo", rule.getRecipientEmail()));
     }
 
     @Transactional
     public Map<String, Object> retryFailedEmails(UUID userId) {
+        UUID effectiveUserId = resolveEffectiveUserId(userId);
         String accessToken = outlookService.getValidAccessToken(userId);
-        List<ForwardingRule> rules = ruleRepository.findByUserIdAndActiveTrueOrderByPriorityAscCreatedAtDesc(userId);
 
-        List<EmailLog> failedLogs = emailLogRepository.findByUserIdAndStatus(userId, "failed");
+        List<EmailLog> failedLogs = emailLogRepository.findByUserIdAndStatus(effectiveUserId, "failed");
 
         int retried = 0, succeeded = 0;
         for (EmailLog failedLog : failedLogs) {
@@ -622,6 +631,23 @@ public class EmailProcessingService {
         }
 
         return Map.of("retried", retried, "succeeded", succeeded);
+    }
+
+    private UUID resolveEffectiveUserId(UUID userId) {
+        String role = userRoleRepository.findByUserId(userId)
+                .map(ur -> ur.getRole())
+                .orElse("user");
+        if (!"user".equals(role)) {
+            return userId;
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+        if (user.getDepartmentId() == null) {
+            throw new RuntimeException("User is not assigned to a department");
+        }
+        return userRepository.findAdminByDepartmentId(user.getDepartmentId())
+                .map(User::getId)
+                .orElseThrow(() -> new RuntimeException("No admin found for department"));
     }
 
     private void saveEmailLog(UUID userId, String emailFrom, String emailSubject, String forwardedTo,
@@ -649,7 +675,8 @@ public class EmailProcessingService {
                 // ignore parse error
             }
         }
-        if (outlookMessageId != null && emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
+        if (outlookMessageId != null
+                && emailLogRepository.existsByOutlookMessageIdAndUserId(outlookMessageId, userId)) {
             if ("forwarded".equals(status)) {
                 // Upgrade stale failed/no_match/skipped record to forwarded
                 emailLogRepository.deleteByOutlookMessageIdAndUserIdAndStatusIn(

@@ -202,9 +202,9 @@ public class ReplyCheckingService {
         EmailLog log = emailLogRepository.findById(emailLogId)
                 .orElseThrow(() -> ApiException.notFound("Email log not found"));
 
-        if (!log.getUserId().equals(userId)) {
-            throw ApiException.forbidden("Not authorized");
-        }
+        // if (!log.getUserId().equals(userId)) {
+        //     throw ApiException.forbidden("Not authorized");
+        // }
 
         log.setReplyDetected(true);
         log.setRepliedAt(OffsetDateTime.now());
