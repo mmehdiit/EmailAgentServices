@@ -1,8 +1,12 @@
 package com.emailagent.service;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.OffsetDateTime;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -888,61 +892,135 @@ public class EmailProcessingService {
         try {
             String bearerToken = getOcrBearerToken();
 
-            JsonNode attachmentsData = outlookService.callGraphApi(accessToken,
-                    "messages/" + messageId + "/attachments?$select=id,name,contentType");
+            JsonNode attachmentsData = outlookService.callGraphApi(
+                    accessToken,
+                    "messages/" + messageId + "/attachments");
+
             JsonNode attachments = attachmentsData.path("value");
 
             for (JsonNode attachment : attachments) {
+
                 try {
+
+                    // Only real file attachments
+                    String odataType = attachment.path("@odata.type").asText("");
+
+                    if (!"#microsoft.graph.fileAttachment".equals(odataType)) {
+                        continue;
+                    }
+
+                    // Skip inline images/signatures
+                    boolean isInline = attachment.path("isInline").asBoolean(false);
+
+                    if (isInline) {
+                        continue;
+                    }
+
                     String attachmentId = attachment.path("id").asText("");
                     String fileName = attachment.path("name").asText("attachment");
-                    String contentType = attachment.path("contentType").asText("application/octet-stream");
+                    String contentType = attachment.path("contentType")
+                            .asText("application/octet-stream");
 
-                    if (attachmentId.isEmpty())
+                    if (attachmentId.isEmpty()) {
                         continue;
+                    }
 
-                    JsonNode fullAttachment = outlookService.callGraphApi(accessToken,
+                    // Optional: skip common signature image types
+                    if (contentType.startsWith("image/")) {
+                        log.info("[OCR] Skipping image attachment: {}", fileName);
+                        continue;
+                    }
+
+                    JsonNode fullAttachment = outlookService.callGraphApi(
+                            accessToken,
                             "messages/" + messageId + "/attachments/" + attachmentId);
-                    String contentBytesBase64 = fullAttachment.path("contentBytes").asText("");
-                    if (contentBytesBase64.isEmpty())
-                        continue;
 
-                    byte[] fileBytes = java.util.Base64.getDecoder().decode(contentBytesBase64);
+                    String contentBytesBase64 = fullAttachment.path("contentBytes").asText();
+
+                    if (contentBytesBase64 == null || contentBytesBase64.isEmpty()) {
+                        continue;
+                    }
+
+                    byte[] fileBytes = Base64.getDecoder().decode(contentBytesBase64);
 
                     MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+
                     body.add("file", new ByteArrayResource(fileBytes) {
                         @Override
                         public String getFilename() {
                             return fileName;
                         }
                     });
+
                     body.add("docType", "police-report");
 
                     HttpHeaders headers = new HttpHeaders();
                     headers.setContentType(MediaType.MULTIPART_FORM_DATA);
                     headers.setBearerAuth(bearerToken);
+
                     HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
 
                     ResponseEntity<String> response = ocrRestTemplate.postForEntity(
-                            ocrBaseUrl + "/v1/api/ai-gateway/ocr/upload", requestEntity, String.class);
+                            ocrBaseUrl + "/v1/api/ai-gateway/ocr/upload",
+                            requestEntity,
+                            String.class);
+
                     String responseBody = response.getBody();
 
-                    if (responseBody == null)
+                    if (responseBody == null) {
                         continue;
+                    }
 
                     PoliceReportDto ocrResult = objectMapper.readValue(responseBody, PoliceReportDto.class);
-                    if ("police-report".equals(ocrResult.getMeta().getDocumentType())) {
+
+                    if ("police-report".equals(
+                            ocrResult.getMeta().getDocumentType())) {
+
                         log.info("[OCR] Police report found in attachment: {}", fileName);
-                        return new PoliceReportAttachment(ocrResult, fileBytes, fileName);
+
+                        return new PoliceReportAttachment(
+                                ocrResult,
+                                fileBytes,
+                                fileName);
                     }
+
                 } catch (Exception e) {
-                    log.warn("[OCR] Failed to classify attachments for message {}: {}", messageId, e.getMessage());
+                    log.warn(
+                            "[OCR] Failed to classify attachment for message {}: {}",
+                            messageId,
+                            e.getMessage());
                 }
             }
+
         } catch (Exception e) {
-            log.warn("[OCR] Failed to classify attachments for message {}: {}", messageId, e.getMessage());
+            log.warn(
+                    "[OCR] Failed to classify attachments for message {}: {}",
+                    messageId,
+                    e.getMessage());
         }
+
         return null;
+    }
+
+    private void saveFile(String attachmentName, String contentBytes, String basePath) throws Exception {
+
+        // Skip if no content
+        if (contentBytes == null || contentBytes.isEmpty()) {
+            return;
+        }
+
+        // Decode Base64 content
+        byte[] fileBytes = Base64.getDecoder().decode(contentBytes);
+
+        // Sanitize filename
+        String safeFileName = attachmentName.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        Path filePath = Paths.get(basePath, safeFileName);
+
+        // Save file
+        Files.write(filePath, fileBytes);
+
+        System.out.println("Saved attachment: " + filePath);
     }
 
     private boolean isInRecipients(JsonNode recipients, String email) {
