@@ -246,18 +246,18 @@ public class EmailClassificationService {
                 }
 
                 // Post-guard: double-check exclude keywords weren't violated
-                if (validRule.getNegativeKeywords() != null && validRule.getNegativeKeywords().length > 0) {
-                    String matchedNegKw = Arrays.stream(validRule.getNegativeKeywords())
-                            .filter(nk -> nk != null && !nk.isBlank() &&
-                                    combinedContent.contains(nk.toLowerCase().trim()))
-                            .findFirst().orElse(null);
-                    if (matchedNegKw != null) {
-                        log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword \"{}\"",
-                                validRule.getName(), matchedNegKw);
-                        return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword",
-                                null, matchedNegKw);
-                    }
-                }
+                // if (validRule.getNegativeKeywords() != null && validRule.getNegativeKeywords().length > 0) {
+                //     String matchedNegKw = Arrays.stream(validRule.getNegativeKeywords())
+                //             .filter(nk -> nk != null && !nk.isBlank() &&
+                //                     combinedContent.contains(nk.toLowerCase().trim()))
+                //             .findFirst().orElse(null);
+                //     if (matchedNegKw != null) {
+                //         log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword \"{}\"",
+                //                 validRule.getName(), matchedNegKw);
+                //         return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword",
+                //                 null, matchedNegKw);
+                //     }
+                // }
 
                 // Resolve override email from special conditions if AI didn't provide one
                 if (overrideEmail == null) {
