@@ -61,10 +61,14 @@ public class EmailClassificationService {
     public ClassificationResult classify(EmailData email, List<ForwardingRule> rules) {
 
         // Combined content for keyword matching — subject + body + original subject
-        String combinedContent = ((email.subject() != null ? email.subject() : "") + " " +
-                (email.body() != null ? email.body() : "") + " " +
-                (email.originalSubject() != null ? email.originalSubject() : "")).toLowerCase();
+        // String combinedContent = ((email.subject() != null ? email.subject() : "") +
+        // " " +
+        // (email.body() != null ? email.body() : "") + " " +
+        // (email.originalSubject() != null ? email.originalSubject() :
+        // "")).toLowerCase();
 
+        String combinedContent = ((email.body() != null ? email.body()
+                : (email.subject() != null ? email.subject() : ""))).toLowerCase();
         // -------------------------------------------------------------------------
         // STAGE 1: Pure Java keyword matching — no AI involved
         // If a keyword matches AND no exclude keyword matches → return immediately
@@ -343,10 +347,12 @@ public class EmailClassificationService {
     private String buildUserPrompt(EmailData email) {
         StringBuilder sb = new StringBuilder();
         sb.append("From: ").append(email.sender()).append("\n");
-        sb.append("Subject: ").append(email.subject()).append("\n");
+        // sb.append("Subject: ").append(email.subject()).append("\n");
+        sb.append("Subject: ").append("").append("\n");
         if (email.isForwarded()) {
             sb.append("Original Sender: ").append(email.originalSender()).append("\n");
-            sb.append("Original Subject: ").append(email.originalSubject()).append("\n");
+            // sb.append("Original Subject: ").append(email.originalSubject()).append("\n");
+            sb.append("Original Subject: ").append("").append("\n");
         }
         sb.append("\n");
         String body = email.body();
