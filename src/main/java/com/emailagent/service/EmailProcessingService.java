@@ -433,16 +433,15 @@ public class EmailProcessingService {
                 boolean subjectMatch = Arrays.stream(rule.getSubjectPattern().split(","))
                         .map(String::trim)
                         .anyMatch(kw -> !kw.isEmpty() && emailData.subject().toLowerCase().contains(kw.toLowerCase()));
-                if (!subjectMatch)
-                    continue;
+                if (subjectMatch)
+                    return rule;
             }
 
             // Keyword check (only required when keywords are defined)
             if (rule.getKeywords() != null && rule.getKeywords().length > 0) {
                 boolean hasKeywordMatch = Arrays.stream(rule.getKeywords())
                         .anyMatch(kw -> kw != null && !kw.isBlank()
-                                && (primaryContent.contains(kw.toLowerCase().trim())
-                                        || combinedContent.contains(kw.toLowerCase().trim())));
+                                && (primaryContent.contains(kw.toLowerCase().trim())));
                 if (!hasKeywordMatch)
                     continue;
             }
@@ -451,8 +450,7 @@ public class EmailProcessingService {
             if (rule.getNegativeKeywords() != null && rule.getNegativeKeywords().length > 0) {
                 boolean excluded = Arrays.stream(rule.getNegativeKeywords())
                         .anyMatch(nk -> nk != null && !nk.isBlank()
-                                && (primaryContent.contains(nk.toLowerCase().trim())
-                                        || combinedContent.contains(nk.toLowerCase().trim())));
+                                && (primaryContent.contains(nk.toLowerCase().trim())));
                 if (excluded)
                     continue;
             }
