@@ -61,14 +61,9 @@ public class EmailClassificationService {
     public ClassificationResult classify(EmailData email, List<ForwardingRule> rules) {
 
         // Combined content for keyword matching — subject + body + original subject
-        // String combinedContent = ((email.subject() != null ? email.subject() : "") +
-        // " " +
-        // (email.body() != null ? email.body() : "") + " " +
-        // (email.originalSubject() != null ? email.originalSubject() :
-        // "")).toLowerCase();
-
-        String combinedContent = ((email.body() != null ? email.body()
-                : (email.subject() != null ? email.subject() : ""))).toLowerCase();
+        String combinedContent = ((email.subject() != null ? email.subject() : "") + " " +
+                (email.body() != null ? email.body() : "") + " " +
+                (email.originalSubject() != null ? email.originalSubject() : "")).toLowerCase();
 
         // -------------------------------------------------------------------------
         // STAGE 1: Pure Java keyword matching — no AI involved
