@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: http://localhost:8080/v1/api/email-logs
+  url: http://localhost:8080/v1/api/email-agent/email-logs
   auth:
     type: bearer
     token: eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiIzZjY4ZDllOS02YzBkLTRmNDgtOTUzZi02YmViMDA0YTQ5ZTEiLCJlbWFpbCI6ImFkbWluQGVtYWlsYWdlbnQuY29tIiwiaWF0IjoxNzc2MzI5NjYwLCJleHAiOjE3NzY0MTYwNjB9.qoYSmsWxpIFSNWsQSIGN4XJpgSH5zImlfvhSXhNataYuhpgOmBbkrbXjpMw_-eg29BSrxb-4Hzvu79iEqaTyHQ

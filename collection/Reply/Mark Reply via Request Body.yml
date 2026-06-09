@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://localhost:8080/v1/api/reply/mark
+  url: http://localhost:8080/v1/api/email-agent/reply/mark
   body:
     type: json
     data: |-

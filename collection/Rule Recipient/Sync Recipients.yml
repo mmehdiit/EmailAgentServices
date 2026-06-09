@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://localhost:8080/v1/api/rules/:ruleId/recipients/sync
+  url: http://localhost:8080/v1/api/email-agent/rules/:ruleId/recipients/sync
   params:
     - name: ruleId
       value: ""

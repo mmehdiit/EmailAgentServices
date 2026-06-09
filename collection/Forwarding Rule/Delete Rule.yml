@@ -5,7 +5,7 @@ info:
 
 http:
   method: DELETE
-  url: http://localhost:8080/v1/api/rules/:ruleId
+  url: http://localhost:8080/v1/api/email-agent/rules/:ruleId
   params:
     - name: ruleId
       value: 325773a9-4c51-4b3c-8800-5d67d0970ceb

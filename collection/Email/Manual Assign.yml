@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://localhost:8080/v1/api/emails/manual-assign
+  url: http://localhost:8080/v1/api/email-agent/emails/manual-assign
   body:
     type: json
     data: |-

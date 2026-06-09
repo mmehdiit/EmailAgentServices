@@ -5,7 +5,7 @@ info:
 
 http:
   method: PUT
-  url: http://localhost:8080/v1/api/rules/:ruleId
+  url: http://localhost:8080/v1/api/email-agent/rules/:ruleId
   params:
     - name: ruleId
       value: 106eade0-30ad-4167-9f9e-6d3fae303b9f

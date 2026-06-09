@@ -5,7 +5,7 @@ info:
 
 http:
   method: PATCH
-  url: http://localhost:8080/v1/api/emails/:messageId/read
+  url: http://localhost:8080/v1/api/email-agent/emails/:messageId/read
   params:
     - name: messageId
       value: AQMkADAwATNiZmYAZS1hNzE1LTRkNmEtMDACLTAwCgBGAAADKpU_b2LotUOSD2vz0j5yAgcAlZz0O_xwekexg9DgsFh77QAAAgEMAAAAlZz0O_xwekexg9DgsFh77QAAAE6_hH4AAAA=

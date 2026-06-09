@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://localhost:8080/v1/api/outlook/auth
+  url: http://localhost:8080/v1/api/email-agent/outlook/auth
   body:
     type: json
     data: |-

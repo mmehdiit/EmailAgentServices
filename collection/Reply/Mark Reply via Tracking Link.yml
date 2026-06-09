@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: http://localhost:8080/v1/api/reply/mark?token=&preview
+  url: http://localhost:8080/v1/api/email-agent/reply/mark?token=&preview
   params:
     - name: token
       value: ""

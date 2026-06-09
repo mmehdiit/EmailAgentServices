@@ -4,11 +4,8 @@ import com.emailagent.dto.RuleRecipientDto;
 import com.emailagent.dto.RuleRecipientRequest;
 import com.emailagent.exception.ApiException;
 import com.emailagent.model.RuleRecipient;
-import com.emailagent.model.User;
 import com.emailagent.repository.ForwardingRuleRepository;
 import com.emailagent.repository.RuleRecipientRepository;
-import com.emailagent.repository.UserRepository;
-import com.emailagent.repository.UserRoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,32 +19,13 @@ public class RuleRecipientService {
 
     private final RuleRecipientRepository recipientRepository;
     private final ForwardingRuleRepository ruleRepository;
-    private final UserRepository userRepository;
-    private final UserRoleRepository userRoleRepository;
 
     public List<RuleRecipientDto> getRecipientsForRule(UUID userId, UUID ruleId) {
-        UUID effectiveUserId = resolveEffectiveUserId(userId);
-        ruleRepository.findByIdAndUserId(ruleId, effectiveUserId)
+        // Verify rule belongs to user
+        ruleRepository.findByIdAndUserId(ruleId, userId)
                 .orElseThrow(() -> ApiException.notFound("Rule not found"));
         return recipientRepository.findByRuleIdOrderBySortOrderAsc(ruleId)
                 .stream().map(this::toDto).toList();
-    }
-
-    private UUID resolveEffectiveUserId(UUID userId) {
-        String role = userRoleRepository.findByUserId(userId)
-                .map(ur -> ur.getRole())
-                .orElse("user");
-        if (!"user".equals(role)) {
-            return userId;
-        }
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-        if (user.getDepartmentId() == null) {
-            throw new RuntimeException("User is not assigned to a department");
-        }
-        return userRepository.findAdminByDepartmentId(user.getDepartmentId())
-                .map(User::getId)
-                .orElseThrow(() -> new RuntimeException("No admin found for department"));
     }
 
     @Transactional
