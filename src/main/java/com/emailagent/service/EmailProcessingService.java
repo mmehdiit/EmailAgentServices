@@ -304,9 +304,14 @@ public class EmailProcessingService {
                 boolean wasAiClassified = false;
                 ClassificationResult aiResult = null;
                 String effectiveRecipient = null;
+                String matchedKeyword = null;
 
                 // First: keyword matching
-                matchedRule = findKeywordMatch(emailData, rules, bodyText);
+                KeywordMatchResult keywordResult = findKeywordMatch(emailData, rules, bodyText);
+                if (keywordResult != null) {
+                    matchedRule = keywordResult.rule();
+                    matchedKeyword = keywordResult.matchedKeyword();
+                }
 
                 // If no keyword match, try AI classification
                 if (matchedRule == null) {
@@ -326,7 +331,7 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, null, null, "no_match",
                             outlookMessageId, conversationId, false, 0.0,
                             aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime,
-                            aiResult != null ? aiResult.negativeKeywordOverride() : null);
+                            aiResult != null ? aiResult.negativeKeywordOverride() : null, null);
                     log.info("[NO MATCH] Email: {}", emailSubject);
                     continue;
                 }
@@ -352,7 +357,7 @@ public class EmailProcessingService {
                             saveEmailLog(userId, emailFrom, emailSubject, null, matchedRule.getId(), "skipped",
                                     outlookMessageId, conversationId, wasAiClassified,
                                     aiResult != null ? aiResult.confidence() : 0,
-                                    "All recipients on vacation", null, receivedDateTime, null);
+                                    "All recipients on vacation", null, receivedDateTime, null, matchedKeyword);
                             continue;
                         }
                         effectiveRecipient = rotation.email();
@@ -377,7 +382,7 @@ public class EmailProcessingService {
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
                             aiResult != null ? aiResult.reasoning() : null,
-                            trackingToken, receivedDateTime, null);
+                            trackingToken, receivedDateTime, null, matchedKeyword);
 
                     forwarded++;
                     log.info("[FORWARDED] \"{}\" → {} via rule \"{}\"", emailSubject, effectiveRecipient,
@@ -394,7 +399,7 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, effectiveRecipient, matchedRule.getId(), "failed",
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
-                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null);
+                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null, matchedKeyword);
                 }
 
             } catch (Exception e) {
@@ -405,7 +410,7 @@ public class EmailProcessingService {
         return Map.of("processed", processed, "forwarded", forwarded, "ai_classified", aiClassified);
     }
 
-    private ForwardingRule findKeywordMatch(EmailData emailData, List<ForwardingRule> rules, String bodyText) {
+    private KeywordMatchResult findKeywordMatch(EmailData emailData, List<ForwardingRule> rules, String bodyText) {
         String effectiveBody = extractEffectiveBody(bodyText);
         String combinedContent = (emailData.subject() + " " + bodyText).toLowerCase();
         String primaryContentRaw = extractPrimaryMessage(effectiveBody).toLowerCase();
@@ -430,19 +435,22 @@ public class EmailProcessingService {
 
             // Subject pattern check
             if (rule.getSubjectPattern() != null && !rule.getSubjectPattern().isBlank()) {
-                boolean subjectMatch = Arrays.stream(rule.getSubjectPattern().split(","))
+                String matchedSubjectKw = Arrays.stream(rule.getSubjectPattern().split(","))
                         .map(String::trim)
-                        .anyMatch(kw -> !kw.isEmpty() && emailData.subject().toLowerCase().contains(kw.toLowerCase()));
-                if (subjectMatch)
-                    return rule;
+                        .filter(kw -> !kw.isEmpty() && emailData.subject().toLowerCase().contains(kw.toLowerCase()))
+                        .findFirst().orElse(null);
+                if (matchedSubjectKw != null)
+                    return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw);
             }
 
             // Keyword check (only required when keywords are defined)
+            String matchedKeyword = null;
             if (rule.getKeywords() != null && rule.getKeywords().length > 0) {
-                boolean hasKeywordMatch = Arrays.stream(rule.getKeywords())
-                        .anyMatch(kw -> kw != null && !kw.isBlank()
-                                && (primaryContent.contains(kw.toLowerCase().trim())));
-                if (!hasKeywordMatch)
+                matchedKeyword = Arrays.stream(rule.getKeywords())
+                        .filter(kw -> kw != null && !kw.isBlank()
+                                && primaryContent.contains(kw.toLowerCase().trim()))
+                        .findFirst().orElse(null);
+                if (matchedKeyword == null)
                     continue;
             }
 
@@ -450,12 +458,13 @@ public class EmailProcessingService {
             if (rule.getNegativeKeywords() != null && rule.getNegativeKeywords().length > 0) {
                 boolean excluded = Arrays.stream(rule.getNegativeKeywords())
                         .anyMatch(nk -> nk != null && !nk.isBlank()
-                                && (primaryContent.contains(nk.toLowerCase().trim())));
+                                && primaryContent.contains(nk.toLowerCase().trim()));
                 if (excluded)
                     continue;
             }
 
-            return rule;
+            return new KeywordMatchResult(rule, matchedKeyword != null ? "keyword:" + matchedKeyword
+                    : "sender:" + rule.getSenderPattern());
         }
         return null;
     }
@@ -607,7 +616,7 @@ public class EmailProcessingService {
         // Log
         saveEmailLog(effectiveUserId, emailFrom, emailSubject, rule.getRecipientEmail(), rule.getId(), "forwarded",
                 outlookMessageId, conversationId, false, null,
-                "Manually assigned by user", trackingToken, receivedDateTime, null);
+                "Manually assigned by user", trackingToken, receivedDateTime, null, null);
 
         log.info("[MANUAL ASSIGN] \"{}\" → {} via rule \"{}\"", emailSubject, rule.getRecipientEmail(), rule.getName());
 
@@ -661,7 +670,7 @@ public class EmailProcessingService {
     private void saveEmailLog(UUID userId, String emailFrom, String emailSubject, String forwardedTo,
             UUID ruleMatched, String status, String outlookMessageId, String conversationId,
             boolean aiClassified, Double aiConfidence, String aiReasoning,
-            UUID trackingToken, String receivedDateTime, String negativeKeywordOverride) {
+            UUID trackingToken, String receivedDateTime, String negativeKeywordOverride, String matchedKeyword) {
         EmailLog emailLog = new EmailLog();
         emailLog.setUserId(userId);
         emailLog.setEmailFrom(emailFrom);
@@ -676,6 +685,7 @@ public class EmailProcessingService {
         emailLog.setAiReasoning(aiReasoning);
         emailLog.setTrackingToken(trackingToken);
         emailLog.setNegativeKeywordOverride(negativeKeywordOverride);
+        emailLog.setMatchedKeyword(matchedKeyword);
         if (receivedDateTime != null && !receivedDateTime.isEmpty()) {
             try {
                 emailLog.setReceivedAt(OffsetDateTime.parse(receivedDateTime));
@@ -836,6 +846,9 @@ public class EmailProcessingService {
             }
         }
         return text;
+    }
+
+    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword) {
     }
 
     private record ForwardedInfo(boolean isForwarded, String originalSender, String originalSubject,

@@ -75,4 +75,7 @@ public class EmailLog {
 
     @Column(name = "negative_keyword_override")
     private String negativeKeywordOverride;
+
+    @Column(name = "matched_keyword", columnDefinition = "text")
+    private String matchedKeyword;
 }
