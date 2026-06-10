@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashSet;
@@ -308,10 +309,10 @@ public class EmailProcessingService {
 
                 // First: keyword matching
                 KeywordMatchResult keywordResult = findKeywordMatch(emailData, rules, bodyText);
-                if (keywordResult != null) {
-                    matchedRule = keywordResult.rule();
-                    matchedKeyword = keywordResult.matchedKeyword();
-                }
+                matchedRule = keywordResult.rule();
+                matchedKeyword = keywordResult.matchedKeyword();
+                String keywordNegativeOverride = keywordResult.negativeKeywordOverrides().isEmpty()
+                        ? null : String.join("; ", keywordResult.negativeKeywordOverrides());
 
                 // If no keyword match, try AI classification
                 if (matchedRule == null) {
@@ -328,10 +329,13 @@ public class EmailProcessingService {
 
                 if (matchedRule == null) {
                     // No match - log as no_match
+                    String negativeOverride = aiResult != null && aiResult.negativeKeywordOverride() != null
+                            ? aiResult.negativeKeywordOverride()
+                            : keywordNegativeOverride;
                     saveEmailLog(userId, emailFrom, emailSubject, null, null, "no_match",
                             outlookMessageId, conversationId, false, 0.0,
                             aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime,
-                            aiResult != null ? aiResult.negativeKeywordOverride() : null, null);
+                            negativeOverride, null);
                     log.info("[NO MATCH] Email: {}", emailSubject);
                     continue;
                 }
@@ -357,7 +361,8 @@ public class EmailProcessingService {
                             saveEmailLog(userId, emailFrom, emailSubject, null, matchedRule.getId(), "skipped",
                                     outlookMessageId, conversationId, wasAiClassified,
                                     aiResult != null ? aiResult.confidence() : 0,
-                                    "All recipients on vacation", null, receivedDateTime, null, matchedKeyword);
+                                    "All recipients on vacation", null, receivedDateTime, keywordNegativeOverride,
+                                    matchedKeyword);
                             continue;
                         }
                         effectiveRecipient = rotation.email();
@@ -382,7 +387,7 @@ public class EmailProcessingService {
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
                             aiResult != null ? aiResult.reasoning() : null,
-                            trackingToken, receivedDateTime, null, matchedKeyword);
+                            trackingToken, receivedDateTime, keywordNegativeOverride, matchedKeyword);
 
                     forwarded++;
                     log.info("[FORWARDED] \"{}\" → {} via rule \"{}\"", emailSubject, effectiveRecipient,
@@ -399,7 +404,8 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, effectiveRecipient, matchedRule.getId(), "failed",
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
-                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null, matchedKeyword);
+                            "Forward failed: " + e.getMessage(), null, receivedDateTime, keywordNegativeOverride,
+                            matchedKeyword);
                 }
 
             } catch (Exception e) {
@@ -415,6 +421,8 @@ public class EmailProcessingService {
         String combinedContent = (emailData.subject() + " " + bodyText).toLowerCase();
         String primaryContentRaw = extractPrimaryMessage(effectiveBody).toLowerCase();
         final String primaryContent = primaryContentRaw.isEmpty() ? combinedContent : primaryContentRaw;
+
+        List<String> negativeOverrides = new ArrayList<>();
 
         for (ForwardingRule rule : rules) {
             if (!rule.isActive())
@@ -439,8 +447,14 @@ public class EmailProcessingService {
                         .map(String::trim)
                         .filter(kw -> !kw.isEmpty() && emailData.subject().toLowerCase().contains(kw.toLowerCase()))
                         .findFirst().orElse(null);
-                if (matchedSubjectKw != null)
-                    return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw);
+                if (matchedSubjectKw != null) {
+                    String blockedBy = findBlockingNegativeKeyword(rule, primaryContent);
+                    if (blockedBy != null) {
+                        negativeOverrides.add(rule.getName() + ": " + blockedBy);
+                        continue;
+                    }
+                    return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw, negativeOverrides);
+                }
             }
 
             // Keyword check (only required when keywords are defined)
@@ -455,18 +469,24 @@ public class EmailProcessingService {
             }
 
             // Negative keyword check
-            if (rule.getNegativeKeywords() != null && rule.getNegativeKeywords().length > 0) {
-                boolean excluded = Arrays.stream(rule.getNegativeKeywords())
-                        .anyMatch(nk -> nk != null && !nk.isBlank()
-                                && primaryContent.contains(nk.toLowerCase().trim()));
-                if (excluded)
-                    continue;
+            String blockedBy = findBlockingNegativeKeyword(rule, primaryContent);
+            if (blockedBy != null) {
+                negativeOverrides.add(rule.getName() + ": " + blockedBy);
+                continue;
             }
 
             return new KeywordMatchResult(rule, matchedKeyword != null ? "keyword:" + matchedKeyword
-                    : "sender:" + rule.getSenderPattern());
+                    : "sender:" + rule.getSenderPattern(), negativeOverrides);
         }
-        return null;
+        return new KeywordMatchResult(null, null, negativeOverrides);
+    }
+
+    private String findBlockingNegativeKeyword(ForwardingRule rule, String content) {
+        if (rule.getNegativeKeywords() == null || rule.getNegativeKeywords().length == 0)
+            return null;
+        return Arrays.stream(rule.getNegativeKeywords())
+                .filter(nk -> nk != null && !nk.isBlank() && content.contains(nk.toLowerCase().trim()))
+                .findFirst().orElse(null);
     }
 
     private String findThreadParticipant(String conversationId, String accessToken, UUID ruleId) {
@@ -848,7 +868,7 @@ public class EmailProcessingService {
         return text;
     }
 
-    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword) {
+    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword, List<String> negativeKeywordOverrides) {
     }
 
     private record ForwardedInfo(boolean isForwarded, String originalSender, String originalSubject,
