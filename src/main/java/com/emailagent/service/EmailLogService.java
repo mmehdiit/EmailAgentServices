@@ -77,6 +77,7 @@ public class EmailLogService {
         dto.setReplySource(log.getReplySource());
         dto.setReceivedAt(log.getReceivedAt());
         dto.setNegativeKeywordOverride(log.getNegativeKeywordOverride());
+        dto.setNegativeKeywordOverrideLog(log.getNegativeKeywordOverrideLog());
         return dto;
     }
 }

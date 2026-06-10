@@ -26,4 +26,5 @@ public class EmailLogDto {
     private String replySource;
     private OffsetDateTime receivedAt;
     private String negativeKeywordOverride;
+    private String negativeKeywordOverrideLog;
 }

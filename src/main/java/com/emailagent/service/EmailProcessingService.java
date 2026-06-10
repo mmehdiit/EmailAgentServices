@@ -109,42 +109,43 @@ public class EmailProcessingService {
 
     // Header lines that appear in forwarded/replied chains
     private static final Pattern HEADER_LINE = Pattern.compile(
-        "^\\s*(from|to|cc|bcc|sent|date|subject|reply-to)\\s*:.*$",
-        Pattern.CASE_INSENSITIVE);
+            "^\\s*(from|to|cc|bcc|sent|date|subject|reply-to)\\s*:.*$",
+            Pattern.CASE_INSENSITIVE);
 
     // "On <date>, <person> wrote:" reply attribution lines
     private static final Pattern REPLY_ATTR = Pattern.compile(
-        "^\\s*on\\s+.+\\b(wrote|sent)\\s*:?\\s*$",
-        Pattern.CASE_INSENSITIVE);
+            "^\\s*on\\s+.+\\b(wrote|sent)\\s*:?\\s*$",
+            Pattern.CASE_INSENSITIVE);
 
     // Forward / begin markers
     private static final Pattern FORWARD_MARKER = Pattern.compile(
-        "^\\s*(-+\\s*forwarded message\\s*-+|begin forwarded message:?|"
-        + ".*forwarded (this )?email.*|.*ai email agent.*)\\s*$",
-        Pattern.CASE_INSENSITIVE);
+            "^\\s*(-+\\s*forwarded message\\s*-+|begin forwarded message:?|"
+                    + ".*forwarded (this )?email.*|.*ai email agent.*)\\s*$",
+            Pattern.CASE_INSENSITIVE);
 
-    // Signature start: "regards", "best regards", "kind regards", "thanks & best regards", etc.
+    // Signature start: "regards", "best regards", "kind regards", "thanks & best
+    // regards", etc.
     private static final Pattern SIGNATURE_START = Pattern.compile(
-        "^\\s*(regards|best regards|kind regards|warm regards|"
-        + "yours sincerely|sincerely|thanks (&|and) best regards|"
-        + "thank you for your understanding|best)\\s*,?\\s*$",
-        Pattern.CASE_INSENSITIVE);
+            "^\\s*(regards|best regards|kind regards|warm regards|"
+                    + "yours sincerely|sincerely|thanks (&|and) best regards|"
+                    + "thank you for your understanding|best)\\s*,?\\s*$",
+            Pattern.CASE_INSENSITIVE);
 
     // Sign-off / mobile footers
     private static final Pattern FOOTER_LINE = Pattern.compile(
-        "^\\s*(sent from .*|.*central bank registration.*|"
-        + ".*get in touch with us.*|p\\.?o\\.?\\s*box.*|"
-        + "t\\s*:?-?\\s*\\+?\\d.*|d\\s*:?-?\\s*\\+?\\d.*|"
-        + "e\\s*:?-?\\s*\\S+@\\S+.*|w\\s*:?-?\\s*https?://.*|"
-        + "mob\\s*:.*|tel\\s*:.*|web\\s*:.*|"
-        + "google link\\s*:.*|https?://\\S+\\s*$)",
-        Pattern.CASE_INSENSITIVE);
+            "^\\s*(sent from .*|.*central bank registration.*|"
+                    + ".*get in touch with us.*|p\\.?o\\.?\\s*box.*|"
+                    + "t\\s*:?-?\\s*\\+?\\d.*|d\\s*:?-?\\s*\\+?\\d.*|"
+                    + "e\\s*:?-?\\s*\\S+@\\S+.*|w\\s*:?-?\\s*https?://.*|"
+                    + "mob\\s*:.*|tel\\s*:.*|web\\s*:.*|"
+                    + "google link\\s*:.*|https?://\\S+\\s*$)",
+            Pattern.CASE_INSENSITIVE);
 
     // Reply-tracking instruction block (your AI agent boilerplate)
     private static final Pattern TRACKING_LINE = Pattern.compile(
-        "^\\s*(reply tracking|to record your reply|"
-        + "\\d+\\.\\s*(reply directly|cc |click here).*|click here to confirm.*)\\s*$",
-        Pattern.CASE_INSENSITIVE);
+            "^\\s*(reply tracking|to record your reply|"
+                    + "\\d+\\.\\s*(reply directly|cc |click here).*|click here to confirm.*)\\s*$",
+            Pattern.CASE_INSENSITIVE);
 
     /**
      * Scheduled job: process unread emails for all users every 5 minutes.
@@ -352,7 +353,8 @@ public class EmailProcessingService {
                 matchedRule = keywordResult.rule();
                 matchedKeyword = keywordResult.matchedKeyword();
                 String keywordNegativeOverride = keywordResult.negativeKeywordOverrides().isEmpty()
-                        ? null : String.join("; ", keywordResult.negativeKeywordOverrides());
+                        ? null
+                        : String.join("; ", keywordResult.negativeKeywordOverrides());
 
                 // If no keyword match, try AI classification
                 if (matchedRule == null) {
@@ -375,7 +377,7 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, null, null, "no_match",
                             outlookMessageId, conversationId, false, 0.0,
                             aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime,
-                            negativeOverride, null);
+                            negativeOverride, negativeOverride, null);
                     log.info("[NO MATCH] Email: {}", emailSubject);
                     continue;
                 }
@@ -401,7 +403,7 @@ public class EmailProcessingService {
                             saveEmailLog(userId, emailFrom, emailSubject, null, matchedRule.getId(), "skipped",
                                     outlookMessageId, conversationId, wasAiClassified,
                                     aiResult != null ? aiResult.confidence() : 0,
-                                    "All recipients on vacation", null, receivedDateTime, keywordNegativeOverride,
+                                    "All recipients on vacation", null, receivedDateTime, null, keywordNegativeOverride,
                                     matchedKeyword);
                             continue;
                         }
@@ -427,7 +429,7 @@ public class EmailProcessingService {
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
                             aiResult != null ? aiResult.reasoning() : null,
-                            trackingToken, receivedDateTime, keywordNegativeOverride, matchedKeyword);
+                            trackingToken, receivedDateTime, null, keywordNegativeOverride, matchedKeyword);
 
                     forwarded++;
                     log.info("[FORWARDED] \"{}\" → {} via rule \"{}\"", emailSubject, effectiveRecipient,
@@ -444,7 +446,7 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, effectiveRecipient, matchedRule.getId(), "failed",
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
-                            "Forward failed: " + e.getMessage(), null, receivedDateTime, keywordNegativeOverride,
+                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null, keywordNegativeOverride,
                             matchedKeyword);
                 }
 
@@ -676,7 +678,7 @@ public class EmailProcessingService {
         // Log
         saveEmailLog(effectiveUserId, emailFrom, emailSubject, rule.getRecipientEmail(), rule.getId(), "forwarded",
                 outlookMessageId, conversationId, false, null,
-                "Manually assigned by user", trackingToken, receivedDateTime, null, null);
+                "Manually assigned by user", trackingToken, receivedDateTime, null, null, null);
 
         log.info("[MANUAL ASSIGN] \"{}\" → {} via rule \"{}\"", emailSubject, rule.getRecipientEmail(), rule.getName());
 
@@ -730,7 +732,8 @@ public class EmailProcessingService {
     private void saveEmailLog(UUID userId, String emailFrom, String emailSubject, String forwardedTo,
             UUID ruleMatched, String status, String outlookMessageId, String conversationId,
             boolean aiClassified, Double aiConfidence, String aiReasoning,
-            UUID trackingToken, String receivedDateTime, String negativeKeywordOverride, String matchedKeyword) {
+            UUID trackingToken, String receivedDateTime, String negativeKeywordOverride,
+            String negativeKeywordOverrideLog, String matchedKeyword) {
         EmailLog emailLog = new EmailLog();
         emailLog.setUserId(userId);
         emailLog.setEmailFrom(emailFrom);
@@ -745,6 +748,7 @@ public class EmailProcessingService {
         emailLog.setAiReasoning(aiReasoning);
         emailLog.setTrackingToken(trackingToken);
         emailLog.setNegativeKeywordOverride(negativeKeywordOverride);
+        emailLog.setNegativeKeywordOverrideLog(negativeKeywordOverrideLog);
         emailLog.setMatchedKeyword(matchedKeyword);
         if (receivedDateTime != null && !receivedDateTime.isEmpty()) {
             try {
@@ -858,18 +862,26 @@ public class EmailProcessingService {
                 if (HEADER_LINE.matcher(t).matches()
                         || FORWARD_MARKER.matcher(t).matches()
                         || REPLY_ATTR.matcher(t).matches()) {
-                    inSignature = false;   // a new message segment begins
+                    inSignature = false; // a new message segment begins
                 } else {
-                    continue;              // still inside signature/footer
+                    continue; // still inside signature/footer
                 }
             }
 
-            if (SIGNATURE_START.matcher(t).matches()) { inSignature = true; continue; }
-            if (HEADER_LINE.matcher(t).matches())     continue;
-            if (REPLY_ATTR.matcher(t).matches())      continue;
-            if (FORWARD_MARKER.matcher(t).matches())  continue;
-            if (FOOTER_LINE.matcher(t).matches())     continue;
-            if (TRACKING_LINE.matcher(t).matches())   continue;
+            if (SIGNATURE_START.matcher(t).matches()) {
+                inSignature = true;
+                continue;
+            }
+            if (HEADER_LINE.matcher(t).matches())
+                continue;
+            if (REPLY_ATTR.matcher(t).matches())
+                continue;
+            if (FORWARD_MARKER.matcher(t).matches())
+                continue;
+            if (FOOTER_LINE.matcher(t).matches())
+                continue;
+            if (TRACKING_LINE.matcher(t).matches())
+                continue;
 
             // Strip leading quote markers ">" if present
             t = t.replaceFirst("^>+\\s*", "");
@@ -879,9 +891,9 @@ public class EmailProcessingService {
 
         // Collapse multiple blank lines and trim
         return out.stream()
-                  .collect(Collectors.joining("\n"))
-                  .replaceAll("\n{3,}", "\n\n")
-                  .strip();
+                .collect(Collectors.joining("\n"))
+                .replaceAll("\n{3,}", "\n\n")
+                .strip();
     }
 
     private String extractEffectiveBody(String bodyText) {
@@ -956,7 +968,8 @@ public class EmailProcessingService {
         return text;
     }
 
-    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword, List<String> negativeKeywordOverrides) {
+    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword,
+            List<String> negativeKeywordOverrides) {
     }
 
     private record ForwardedInfo(boolean isForwarded, String originalSender, String originalSubject,
