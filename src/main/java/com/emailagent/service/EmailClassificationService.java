@@ -69,38 +69,9 @@ public class EmailClassificationService {
 
         String combinedContent = ((email.body() != null ? email.body()
                 : (email.subject() != null ? email.subject() : ""))).toLowerCase();
-        // -------------------------------------------------------------------------
-        // STAGE 1: Pure Java keyword matching — no AI involved
-        // If a keyword matches AND no exclude keyword matches → return immediately
-        // -------------------------------------------------------------------------
-        for (ForwardingRule r : rules) {
-            boolean hasKeywordMatch = r.getKeywords() != null && r.getKeywords().length > 0 &&
-                    Arrays.stream(r.getKeywords())
-                            .anyMatch(kw -> kw != null && !kw.isBlank() &&
-                                    combinedContent.contains(kw.toLowerCase().trim()));
-
-            if (!hasKeywordMatch)
-                continue;
-
-            boolean hasExcludeMatch = r.getNegativeKeywords() != null && r.getNegativeKeywords().length > 0 &&
-                    Arrays.stream(r.getNegativeKeywords())
-                            .anyMatch(nk -> nk != null && !nk.isBlank() &&
-                                    combinedContent.contains(nk.toLowerCase().trim()));
-
-            if (!hasExcludeMatch) {
-                // Check special conditions for override recipient
-                String overrideEmail = resolveOverrideEmail(r, combinedContent);
-                log.debug("[KEYWORD MATCH] Rule \"{}\" matched directly, skipping AI", r.getName());
-                return new ClassificationResult(
-                        r.getId().toString(), r.getName(), 1.0, "Direct keyword match", overrideEmail, null);
-            } else {
-                log.debug("[KEYWORD AMBIGUOUS] Rule \"{}\" has both keyword and exclude keyword match, deferring to AI",
-                        r.getName());
-            }
-        }
 
         // -------------------------------------------------------------------------
-        // STAGE 2: AI — only for emails that keyword matching couldn't resolve
+        // STAGE 1: AI — only for emails that keyword matching couldn't resolve
         // Only pass AI-enabled rules, and only their context (no keyword lists)
         // -------------------------------------------------------------------------
         List<ForwardingRule> aiRules = rules.stream()

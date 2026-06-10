@@ -19,6 +19,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -105,6 +106,45 @@ public class EmailProcessingService {
     private final RestTemplate ocrRestTemplate = new RestTemplate();
     private String cachedOcrToken;
     private long cachedOcrTokenFetchedAt = 0;
+
+    // Header lines that appear in forwarded/replied chains
+    private static final Pattern HEADER_LINE = Pattern.compile(
+        "^\\s*(from|to|cc|bcc|sent|date|subject|reply-to)\\s*:.*$",
+        Pattern.CASE_INSENSITIVE);
+
+    // "On <date>, <person> wrote:" reply attribution lines
+    private static final Pattern REPLY_ATTR = Pattern.compile(
+        "^\\s*on\\s+.+\\b(wrote|sent)\\s*:?\\s*$",
+        Pattern.CASE_INSENSITIVE);
+
+    // Forward / begin markers
+    private static final Pattern FORWARD_MARKER = Pattern.compile(
+        "^\\s*(-+\\s*forwarded message\\s*-+|begin forwarded message:?|"
+        + ".*forwarded (this )?email.*|.*ai email agent.*)\\s*$",
+        Pattern.CASE_INSENSITIVE);
+
+    // Signature start: "regards", "best regards", "kind regards", "thanks & best regards", etc.
+    private static final Pattern SIGNATURE_START = Pattern.compile(
+        "^\\s*(regards|best regards|kind regards|warm regards|"
+        + "yours sincerely|sincerely|thanks (&|and) best regards|"
+        + "thank you for your understanding|best)\\s*,?\\s*$",
+        Pattern.CASE_INSENSITIVE);
+
+    // Sign-off / mobile footers
+    private static final Pattern FOOTER_LINE = Pattern.compile(
+        "^\\s*(sent from .*|.*central bank registration.*|"
+        + ".*get in touch with us.*|p\\.?o\\.?\\s*box.*|"
+        + "t\\s*:?-?\\s*\\+?\\d.*|d\\s*:?-?\\s*\\+?\\d.*|"
+        + "e\\s*:?-?\\s*\\S+@\\S+.*|w\\s*:?-?\\s*https?://.*|"
+        + "mob\\s*:.*|tel\\s*:.*|web\\s*:.*|"
+        + "google link\\s*:.*|https?://\\S+\\s*$)",
+        Pattern.CASE_INSENSITIVE);
+
+    // Reply-tracking instruction block (your AI agent boilerplate)
+    private static final Pattern TRACKING_LINE = Pattern.compile(
+        "^\\s*(reply tracking|to record your reply|"
+        + "\\d+\\.\\s*(reply directly|cc |click here).*|click here to confirm.*)\\s*$",
+        Pattern.CASE_INSENSITIVE);
 
     /**
      * Scheduled job: process unread emails for all users every 5 minutes.
@@ -417,7 +457,7 @@ public class EmailProcessingService {
     }
 
     private KeywordMatchResult findKeywordMatch(EmailData emailData, List<ForwardingRule> rules, String bodyText) {
-        String effectiveBody = extractEffectiveBody(bodyText);
+        String effectiveBody = extractBody(bodyText);
         String combinedContent = (emailData.subject() + " " + bodyText).toLowerCase();
         String primaryContentRaw = extractPrimaryMessage(effectiveBody).toLowerCase();
         final String primaryContent = primaryContentRaw.isEmpty() ? combinedContent : primaryContentRaw;
@@ -794,6 +834,54 @@ public class EmailProcessingService {
                 .replace("&quot;", "\"").replace("&#39;", "'");
         text = text.replaceAll("[^\\S\n]+", " ").replaceAll("\n\\s*\n", "\n");
         return text.trim();
+    }
+
+    public static String extractBody(String raw) {
+        // Normalize and split
+        String[] lines = raw.replace("\r\n", "\n").split("\n");
+        List<String> out = new ArrayList<>();
+
+        boolean inSignature = false;
+
+        for (String line : lines) {
+            String t = line.strip();
+
+            if (t.isEmpty()) {
+                if (!out.isEmpty() && !out.get(out.size() - 1).isEmpty())
+                    out.add("");
+                continue;
+            }
+
+            // Once a signature starts, skip everything until the next
+            // structural marker (new message header / forward)
+            if (inSignature) {
+                if (HEADER_LINE.matcher(t).matches()
+                        || FORWARD_MARKER.matcher(t).matches()
+                        || REPLY_ATTR.matcher(t).matches()) {
+                    inSignature = false;   // a new message segment begins
+                } else {
+                    continue;              // still inside signature/footer
+                }
+            }
+
+            if (SIGNATURE_START.matcher(t).matches()) { inSignature = true; continue; }
+            if (HEADER_LINE.matcher(t).matches())     continue;
+            if (REPLY_ATTR.matcher(t).matches())      continue;
+            if (FORWARD_MARKER.matcher(t).matches())  continue;
+            if (FOOTER_LINE.matcher(t).matches())     continue;
+            if (TRACKING_LINE.matcher(t).matches())   continue;
+
+            // Strip leading quote markers ">" if present
+            t = t.replaceFirst("^>+\\s*", "");
+
+            out.add(t);
+        }
+
+        // Collapse multiple blank lines and trim
+        return out.stream()
+                  .collect(Collectors.joining("\n"))
+                  .replaceAll("\n{3,}", "\n\n")
+                  .strip();
     }
 
     private String extractEffectiveBody(String bodyText) {
