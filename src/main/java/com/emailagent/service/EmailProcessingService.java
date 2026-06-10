@@ -504,14 +504,14 @@ public class EmailProcessingService {
             if (rule.getKeywords() != null && rule.getKeywords().length > 0) {
                 matchedKeyword = Arrays.stream(rule.getKeywords())
                         .filter(kw -> kw != null && !kw.isBlank()
-                                && primaryContent.contains(kw.toLowerCase().trim()))
+                                && effectiveBody.contains(kw.toLowerCase().trim()))
                         .findFirst().orElse(null);
                 if (matchedKeyword == null)
                     continue;
             }
 
             // Negative keyword check
-            String blockedBy = findBlockingNegativeKeyword(rule, primaryContent);
+            String blockedBy = findBlockingNegativeKeyword(rule, effectiveBody);
             if (blockedBy != null) {
                 negativeOverrides.add(rule.getName() + ": " + blockedBy);
                 continue;
