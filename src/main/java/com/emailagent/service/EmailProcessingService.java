@@ -128,7 +128,7 @@ public class EmailProcessingService {
     private static final Pattern SIGNATURE_START = Pattern.compile(
             "^\\s*(regards|best regards|kind regards|warm regards|"
                     + "yours sincerely|sincerely|thanks (&|and) best regards|"
-                    + "thank you for your understanding|best)\\s*,?\\s*$",
+                    + "thank you for your understanding|best)\\s*[.,]?\\s*$",
             Pattern.CASE_INSENSITIVE);
 
     // Sign-off / mobile footers
@@ -145,6 +145,17 @@ public class EmailProcessingService {
     private static final Pattern TRACKING_LINE = Pattern.compile(
             "^\\s*(reply tracking|to record your reply|"
                     + "\\d+\\.\\s*(reply directly|cc |click here).*|click here to confirm.*)\\s*$",
+            Pattern.CASE_INSENSITIVE);
+
+    // Confidentiality disclaimers appended after signatures
+    private static final Pattern DISCLAIMER_LINE = Pattern.compile(
+            "^\\s*(?:this\\s+(?:e-?mail|message|email|communication)\\b.*\\b(?:confidential|intended|privileged)|"
+                    + "please\\s+do\\s+not\\s+(?:print|forward|share|distribute)\\s+this|"
+                    + "if\\s+you\\s+(?:are\\s+not|have\\s+received\\s+this)\\b.*\\b(?:intended|addressee|recipient)|"
+                    + ".*\\bintended\\s+solely\\s+for\\b|"
+                    + ".*\\bmay\\s+contain\\b.*\\b(?:privileged|confidential|proprietary)\\s+information|"
+                    + ".*\\bunauthori[sz]ed\\s+(?:use|access|disclosure|distribution)|"
+                    + "confidentiality\\s+notice|legal\\s+(?:notice|disclaimer)).*$",
             Pattern.CASE_INSENSITIVE);
 
     /**
@@ -287,6 +298,11 @@ public class EmailProcessingService {
                 // Extract email body as plain text
                 String htmlBody = email.path("body").path("content").asText("");
                 String bodyText = extractTextFromHtml(htmlBody);
+
+                ThreadSplit threadSplit = splitThreadBody(bodyText);
+                String lastMessage = threadSplit.lastMessage();       // latest reply only
+                String previousMessages = threadSplit.previousMessages(); // all prior thread content
+
                 String conversationId = email.path("conversationId").asText(null);
                 String receivedDateTime = email.path("receivedDateTime").asText(null);
 
@@ -348,32 +364,19 @@ public class EmailProcessingService {
                 String effectiveRecipient = null;
                 String matchedKeyword = null;
 
-                // First: keyword matching
-                KeywordMatchResult keywordResult = findKeywordMatch(emailData, rules, bodyText);
-                matchedRule = keywordResult.rule();
-                matchedKeyword = keywordResult.matchedKeyword();
-                String keywordNegativeOverride = keywordResult.negativeKeywordOverrides().isEmpty()
-                        ? null
-                        : String.join("; ", keywordResult.negativeKeywordOverrides());
-
-                // If no keyword match, try AI classification
-                if (matchedRule == null) {
-                    aiResult = classificationService.classify(emailData, rules);
-                    if (aiResult.matchedRuleId() != null && aiResult.confidence() >= 0.7) {
-                        final String ruleId = aiResult.matchedRuleId();
-                        matchedRule = rules.stream()
-                                .filter(r -> r.getId().toString().equals(ruleId))
-                                .findFirst().orElse(null);
-                        wasAiClassified = matchedRule != null;
-                        aiClassified++;
-                    }
+                aiResult = classificationService.classify(lastMessage, previousMessages, rules);
+                if (aiResult.matchedRuleId() != null && aiResult.confidence() >= 0.7) {
+                    final String ruleId = aiResult.matchedRuleId();
+                    matchedRule = rules.stream()
+                            .filter(r -> r.getId().toString().equals(ruleId))
+                            .findFirst().orElse(null);
+                    wasAiClassified = matchedRule != null;
+                    aiClassified++;
                 }
 
                 if (matchedRule == null) {
                     // No match - log as no_match
-                    String negativeOverride = aiResult != null && aiResult.negativeKeywordOverride() != null
-                            ? aiResult.negativeKeywordOverride()
-                            : keywordNegativeOverride;
+                    String negativeOverride = aiResult.negativeKeywordOverride();
                     saveEmailLog(userId, emailFrom, emailSubject, null, null, "no_match",
                             outlookMessageId, conversationId, false, 0.0,
                             aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime,
@@ -403,7 +406,7 @@ public class EmailProcessingService {
                             saveEmailLog(userId, emailFrom, emailSubject, null, matchedRule.getId(), "skipped",
                                     outlookMessageId, conversationId, wasAiClassified,
                                     aiResult != null ? aiResult.confidence() : 0,
-                                    "All recipients on vacation", null, receivedDateTime, null, keywordNegativeOverride,
+                                    "All recipients on vacation", null, receivedDateTime, null, null,
                                     matchedKeyword);
                             continue;
                         }
@@ -429,7 +432,7 @@ public class EmailProcessingService {
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
                             aiResult != null ? aiResult.reasoning() : null,
-                            trackingToken, receivedDateTime, null, keywordNegativeOverride, matchedKeyword);
+                            trackingToken, receivedDateTime, null, null, matchedKeyword);
 
                     forwarded++;
                     log.info("[FORWARDED] \"{}\" → {} via rule \"{}\"", emailSubject, effectiveRecipient,
@@ -446,7 +449,7 @@ public class EmailProcessingService {
                     saveEmailLog(userId, emailFrom, emailSubject, effectiveRecipient, matchedRule.getId(), "failed",
                             outlookMessageId, conversationId, wasAiClassified,
                             aiResult != null ? aiResult.confidence() : null,
-                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null, keywordNegativeOverride,
+                            "Forward failed: " + e.getMessage(), null, receivedDateTime, null, null,
                             matchedKeyword);
                 }
 
@@ -896,6 +899,123 @@ public class EmailProcessingService {
                 .strip();
     }
 
+    private ThreadSplit splitThreadBody(String bodyText) {
+        if (bodyText == null || bodyText.isEmpty())
+            return new ThreadSplit("", "");
+
+        // Strip signatures and disclaimers from all messages in the thread first,
+        // preserving thread-separator headers (From:/Sent:/To: etc.) so splitting still works.
+        String cleaned = cleanSignaturesAndDisclaimers(bodyText);
+        String[] lines = cleaned.split("\n");
+        int splitIndex = -1;
+
+        for (int i = 0; i < lines.length; i++) {
+            String t = lines[i].trim();
+            if (t.isEmpty())
+                continue;
+            if (REPLY_ATTR.matcher(t).matches()
+                    || FORWARD_MARKER.matcher(t).matches()
+                    || HEADER_LINE.matcher(t).matches()
+                    || t.startsWith(">")
+                    || t.matches("_{5,}")
+                    || t.matches("(?i)-{2,}\\s*(Original Message|Forwarded message)\\s*-{2,}")) {
+                splitIndex = i;
+                break;
+            }
+        }
+
+        if (splitIndex < 0)
+            return new ThreadSplit(cleaned.trim(), "");
+
+        String lastMessage = String.join("\n", Arrays.copyOfRange(lines, 0, splitIndex)).trim();
+        String previous = String.join("\n", Arrays.copyOfRange(lines, splitIndex, lines.length)).trim();
+        return new ThreadSplit(lastMessage, previous);
+    }
+
+    /**
+     * Strips signature blocks (sign-offs + name/title/contact info), footer lines,
+     * and confidentiality disclaimers from every message in a thread, while keeping
+     * thread-separator headers (From:/Sent:/To: etc.) intact so splitting can still work.
+     */
+    private String cleanSignaturesAndDisclaimers(String raw) {
+        String[] lines = raw.replace("\r\n", "\n").split("\n");
+        List<String> out = new ArrayList<>();
+        boolean inSignature = false;
+
+        for (String line : lines) {
+            String t = line.strip();
+
+            if (t.isEmpty()) {
+                if (!out.isEmpty() && !out.get(out.size() - 1).isEmpty())
+                    out.add("");
+                continue;
+            }
+
+            if (inSignature) {
+                // A new message segment (From:/Sent: etc.) ends the signature block
+                if (HEADER_LINE.matcher(t).matches()
+                        || FORWARD_MARKER.matcher(t).matches()
+                        || REPLY_ATTR.matcher(t).matches()) {
+                    inSignature = false;
+                    out.add(t);
+                }
+                // else: still inside signature/footer — skip
+                continue;
+            }
+
+            // Explicit sign-off ("Regards", "Best regards.", …) → enter signature mode
+            if (SIGNATURE_START.matcher(t).matches()) {
+                inSignature = true;
+                continue;
+            }
+
+            // Contact-info line (Tel:, E:, W:, Mob:, …) → trim the preceding name/title
+            // block then enter signature mode for any lines that follow until From:
+            if (FOOTER_LINE.matcher(t).matches()) {
+                trimTrailingNameBlock(out);
+                inSignature = true;
+                continue;
+            }
+
+            if (TRACKING_LINE.matcher(t).matches() || DISCLAIMER_LINE.matcher(t).matches())
+                continue;
+
+            out.add(t);
+        }
+
+        return out.stream()
+                .collect(Collectors.joining("\n"))
+                .replaceAll("\n{3,}", "\n\n")
+                .strip();
+    }
+
+    /**
+     * Walks backwards through accumulated output lines and removes short, non-sentence
+     * lines that are characteristic of name/title/company/location blocks that appear
+     * immediately before a contact-info line (Tel:, E:, W:, …).
+     * Stops as soon as it encounters a line that looks like real message content.
+     */
+    private void trimTrailingNameBlock(List<String> lines) {
+        int removed = 0;
+        while (!lines.isEmpty() && removed < 6) {
+            String last = lines.get(lines.size() - 1);
+            if (last.isEmpty()) {
+                lines.remove(lines.size() - 1);
+                removed++;
+                continue;
+            }
+            // Stop: looks like actual message content
+            if (last.contains("?") || last.contains("!")
+                    || last.endsWith(".")
+                    || last.split("\\s+").length > 8
+                    || last.matches("(?i)^(hi|hello|dear|hey|greetings)\\b.*")) {
+                break;
+            }
+            lines.remove(lines.size() - 1);
+            removed++;
+        }
+    }
+
     private String extractEffectiveBody(String bodyText) {
         String stripped = stripSignature(bodyText);
         String primary = extractPrimaryMessage(stripped);
@@ -966,6 +1086,9 @@ public class EmailProcessingService {
             }
         }
         return text;
+    }
+
+    private record ThreadSplit(String lastMessage, String previousMessages) {
     }
 
     private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword,

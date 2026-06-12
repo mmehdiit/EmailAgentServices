@@ -4,7 +4,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.Arrays;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -12,7 +13,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.emailagent.model.ForwardingRule;
-import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -58,71 +58,31 @@ public class EmailClassificationService {
             String originalDate) {
     }
 
-    public ClassificationResult classify(EmailData email, List<ForwardingRule> rules) {
-
-        // Combined content for keyword matching — subject + body + original subject
-        // String combinedContent = ((email.subject() != null ? email.subject() : "") +
-        // " " +
-        // (email.body() != null ? email.body() : "") + " " +
-        // (email.originalSubject() != null ? email.originalSubject() :
-        // "")).toLowerCase();
-
-        String combinedContent = ((email.body() != null ? email.body()
-                : (email.subject() != null ? email.subject() : ""))).toLowerCase();
-
-        // -------------------------------------------------------------------------
-        // STAGE 1: AI — only for emails that keyword matching couldn't resolve
-        // Only pass AI-enabled rules, and only their context (no keyword lists)
-        // -------------------------------------------------------------------------
-        List<ForwardingRule> aiRules = rules.stream()
-                .filter(ForwardingRule::isAiEnabled)
-                .filter(r -> {
-                    // Drop rules whose exclude keywords clearly apply with no positive override
-                    if (r.getNegativeKeywords() == null || r.getNegativeKeywords().length == 0)
-                        return true;
-                    boolean excluded = Arrays.stream(r.getNegativeKeywords())
-                            .anyMatch(nk -> nk != null && !nk.isBlank() &&
-                                    combinedContent.contains(nk.toLowerCase().trim()));
-                    if (!excluded)
-                        return true;
-                    // Keep if a positive keyword also matches — let AI decide
-                    boolean hasPositiveOverride = r.getKeywords() != null &&
-                            Arrays.stream(r.getKeywords())
-                                    .anyMatch(kw -> kw != null && !kw.isBlank() &&
-                                            combinedContent.contains(kw.toLowerCase().trim()));
-                    if (hasPositiveOverride) {
-                        log.debug("[AI PRE-FILTER] Rule \"{}\" kept for AI — positive keyword overrides exclusion",
-                                r.getName());
-                        return true;
-                    }
-                    log.debug("[AI PRE-FILTER] Rule \"{}\" excluded by negative keyword", r.getName());
-                    return false;
-                })
-                .toList();
-
-        if (aiRules.isEmpty()) {
-            return new ClassificationResult(null, null, 0, "No rules matched", null, null);
-        }
-
-        String systemPrompt = buildSystemPrompt(aiRules, email);
-        String userPrompt = buildUserPrompt(email);
+    public ClassificationResult classify(String lastMessage, String previousMessages, List<ForwardingRule> rules) {
 
         try {
-            String requestBody = objectMapper.writeValueAsString(Map.of(
-                    "model", model,
-                    "response_format", Map.of("type", "json_object"),
-                    "max_tokens", 512,
-                    "temperature", 0,
-                    "keep_alive", "10m",
-                    "messages", List.of(
-                            Map.of("role", "system", "content", systemPrompt),
-                            Map.of("role", "user", "content", userPrompt))));
+            List<Map<String, Object>> rulesList = new ArrayList<>();
+            for (int i = 0; i < rules.size(); i++) {
+                ForwardingRule r = rules.get(i);
+                Map<String, Object> ruleMap = new LinkedHashMap<>();
+                ruleMap.put("ruleId", r.getId().toString());
+                ruleMap.put("ruleName", r.getName() != null ? r.getName() : "");
+                ruleMap.put("ruleContext", r.getAiContext() != null ? r.getAiContext() : "");
+                ruleMap.put("priority", r.getPriority());
+                rulesList.add(ruleMap);
+            }
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("lastMessage", lastMessage != null ? lastMessage : "");
+            payload.put("previousMessages", previousMessages != null ? previousMessages : "");
+            payload.put("rules", rulesList);
+
+            String requestBody = objectMapper.writeValueAsString(payload);
 
             log.debug("[AI REQUEST] {}", requestBody);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(gatewayUrl))
-                    .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
@@ -139,106 +99,48 @@ public class EmailClassificationService {
                 return new ClassificationResult(null, null, 0, "AI classification failed", null, null);
             }
 
-            JsonNode responseData = objectMapper.readTree(response.body());
-            String content = responseData.path("choices").path(0).path("message").path("content").asText("");
-
-            if (content.isBlank()) {
+            if (response.body() == null || response.body().isBlank()) {
                 return new ClassificationResult(null, null, 0, "AI returned empty response", null, null);
             }
 
-            // Clean markdown code blocks if model wraps anyway
-            content = content.trim();
-            if (content.startsWith("```json"))
-                content = content.substring(7);
-            if (content.startsWith("```"))
-                content = content.substring(3);
-            if (content.endsWith("```"))
-                content = content.substring(0, content.length() - 3);
-            content = content.trim();
+            JsonNode classification = objectMapper.readTree(response.body());
 
-            JsonNode classification = objectMapper.readerFor(JsonNode.class)
-                    .with(JsonParser.Feature.ALLOW_UNQUOTED_FIELD_NAMES)
-                    .with(JsonParser.Feature.ALLOW_SINGLE_QUOTES)
-                    .readValue(content);
-
-            String matchedRuleIdRaw = classification.hasNonNull("matched_rule_id")
-                    ? classification.get("matched_rule_id").asText(null)
+            String matchedRuleId = classification.hasNonNull("matchedRuleId")
+                    ? classification.get("matchedRuleId").asText(null)
                     : null;
-            String matchedRuleName = classification.hasNonNull("matched_rule_name")
-                    ? classification.get("matched_rule_name").asText(null)
+            String llmMatchedRuleId = classification.hasNonNull("llmMatchedRuleId")
+                    ? classification.get("llmMatchedRuleId").asText(null)
                     : null;
-            double confidence = classification.path("confidence").asDouble(0);
-            String reasoning = classification.path("reasoning").asText("");
-            String overrideEmail = classification.hasNonNull("override_recipient_email")
-                    ? classification.get("override_recipient_email").asText(null)
-                    : null;
+            String llmReasoning = classification.path("llmReasoning").asText(null);
+            double confidence = classification.path("matchingScore").asDouble(0);
 
-            // Rescue: model returned null but reasoning clearly names a rule
-            if (matchedRuleIdRaw == null && reasoning != null && !reasoning.isBlank()) {
-                String reasoningLower = reasoning.toLowerCase();
-                ForwardingRule rescued = aiRules.stream()
-                        .filter(r -> reasoningLower.contains(r.getName().toLowerCase()))
-                        .findFirst()
-                        .orElse(null);
-                if (rescued != null) {
-                    log.debug("[AI RESCUE] null result rescued from reasoning — matched rule \"{}\"",
-                            rescued.getName());
-                    matchedRuleIdRaw = rescued.getId().toString();
-                    matchedRuleName = rescued.getName();
-                }
-            }
+            // Prefer the primary match; fall back to the LLM's suggestion
+            String effectiveRuleId = matchedRuleId != null ? matchedRuleId : llmMatchedRuleId;
 
-            // Validate matched rule ID
-            String matchedRuleId = matchedRuleIdRaw;
-            if (matchedRuleId != null) {
-                final String ruleIdToFind = matchedRuleId;
-                ForwardingRule validRule = aiRules.stream()
+            String matchedRuleName = null;
+            String overrideEmail = null;
+
+            if (effectiveRuleId != null) {
+                final String ruleIdToFind = effectiveRuleId;
+                ForwardingRule validRule = rules.stream()
                         .filter(r -> r.getId().toString().equals(ruleIdToFind))
                         .findFirst()
                         .orElse(null);
 
-                // Fuzzy fallback by name if ID didn't match
-                if (validRule == null && matchedRuleName != null) {
-                    final String nameLower = matchedRuleName.toLowerCase().trim();
-                    validRule = aiRules.stream()
-                            .filter(r -> r.getName().toLowerCase().trim().equals(nameLower))
-                            .findFirst()
-                            .orElse(null);
-                    if (validRule != null) {
-                        log.debug("[AI FUZZY] Recovered rule via name match: {} ({})", validRule.getName(),
-                                validRule.getId());
-                        matchedRuleId = validRule.getId().toString();
-                    }
-                }
-
                 if (validRule == null) {
-                    log.warn("[AI] Invalid rule ID returned: {}", matchedRuleId);
+                    log.warn("[AI] Invalid rule ID returned: {}", effectiveRuleId);
                     return new ClassificationResult(null, null, 0, "AI returned invalid rule reference", null, null);
                 }
 
-                // Post-guard: double-check exclude keywords weren't violated
-                // if (validRule.getNegativeKeywords() != null && validRule.getNegativeKeywords().length > 0) {
-                //     String matchedNegKw = Arrays.stream(validRule.getNegativeKeywords())
-                //             .filter(nk -> nk != null && !nk.isBlank() &&
-                //                     combinedContent.contains(nk.toLowerCase().trim()))
-                //             .findFirst().orElse(null);
-                //     if (matchedNegKw != null) {
-                //         log.warn("[AI POST-GUARD] Rule \"{}\" overridden by negative keyword \"{}\"",
-                //                 validRule.getName(), matchedNegKw);
-                //         return new ClassificationResult(null, null, 0, "AI matched but overridden by negative keyword",
-                //                 null, matchedNegKw);
-                //     }
-                // }
+                matchedRuleName = validRule.getName();
 
-                // Resolve override email from special conditions if AI didn't provide one
-                if (overrideEmail == null) {
-                    overrideEmail = resolveOverrideEmail(validRule, combinedContent);
-                }
+                String combinedContent = ((lastMessage != null ? lastMessage : "")
+                        + " " + (previousMessages != null ? previousMessages : "")).toLowerCase();
+                overrideEmail = resolveOverrideEmail(validRule, combinedContent);
             }
 
-            log.debug("[AI] Classification: ruleId={}, confidence={}, reasoning={}", matchedRuleId, confidence,
-                    reasoning);
-            return new ClassificationResult(matchedRuleId, matchedRuleName, confidence, reasoning, overrideEmail, null);
+            log.debug("[AI] Classification: ruleId={}, score={}, reasoning={}", effectiveRuleId, confidence, llmReasoning);
+            return new ClassificationResult(effectiveRuleId, matchedRuleName, confidence, llmReasoning, overrideEmail, null);
 
         } catch (Exception e) {
             log.error("Error during AI classification", e);
