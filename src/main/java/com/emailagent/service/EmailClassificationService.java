@@ -33,12 +33,6 @@ public class EmailClassificationService {
     @Value("${ai.gateway.url}")
     private String gatewayUrl;
 
-    @Value("${ai.gateway.api-key}")
-    private String apiKey;
-
-    @Value("${ai.gateway.model}")
-    private String model;
-
     public record ClassificationResult(
             String matchedRuleId,
             String matchedRuleName,

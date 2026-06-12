@@ -366,8 +366,10 @@ public class EmailProcessingService {
 
                 // First: keyword matching
                 KeywordMatchResult keywordResult = findSenderAndSubjectMatch(emailData, rules, bodyText);
-                matchedRule = keywordResult.rule();
-                matchedKeyword = keywordResult.matchedKeyword();
+                if (keywordResult != null) {
+                    matchedRule = keywordResult.rule();
+                    matchedKeyword = keywordResult.matchedKeyword();
+                }
 
                 // If no keyword match, try AI classification
                 if (matchedRule == null) {
@@ -466,6 +468,7 @@ public class EmailProcessingService {
         }
 
         return Map.of("processed", processed, "forwarded", forwarded, "ai_classified", aiClassified);
+
     }
 
     private KeywordMatchResult findSenderAndSubjectMatch(EmailData emailData, List<ForwardingRule> rules,
