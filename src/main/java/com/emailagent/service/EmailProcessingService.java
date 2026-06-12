@@ -300,7 +300,7 @@ public class EmailProcessingService {
                 String bodyText = extractTextFromHtml(htmlBody);
 
                 ThreadSplit threadSplit = splitThreadBody(bodyText);
-                String lastMessage = threadSplit.lastMessage();       // latest reply only
+                String lastMessage = threadSplit.lastMessage(); // latest reply only
                 String previousMessages = threadSplit.previousMessages(); // all prior thread content
 
                 String conversationId = email.path("conversationId").asText(null);
@@ -364,23 +364,30 @@ public class EmailProcessingService {
                 String effectiveRecipient = null;
                 String matchedKeyword = null;
 
-                aiResult = classificationService.classify(lastMessage, previousMessages, rules);
-                if (aiResult.matchedRuleId() != null && aiResult.confidence() >= 0.7) {
-                    final String ruleId = aiResult.matchedRuleId();
-                    matchedRule = rules.stream()
-                            .filter(r -> r.getId().toString().equals(ruleId))
-                            .findFirst().orElse(null);
-                    wasAiClassified = matchedRule != null;
-                    aiClassified++;
+                // First: keyword matching
+                KeywordMatchResult keywordResult = findSenderAndSubjectMatch(emailData, rules, bodyText);
+                matchedRule = keywordResult.rule();
+                matchedKeyword = keywordResult.matchedKeyword();
+
+                // If no keyword match, try AI classification
+                if (matchedRule == null) {
+                    aiResult = classificationService.classify(lastMessage, previousMessages, rules);
+                    if (aiResult.matchedRuleId() != null && aiResult.confidence() >= 0.7) {
+                        final String ruleId = aiResult.matchedRuleId();
+                        matchedRule = rules.stream()
+                                .filter(r -> r.getId().toString().equals(ruleId))
+                                .findFirst().orElse(null);
+                        wasAiClassified = matchedRule != null;
+                        aiClassified++;
+                    }
                 }
 
                 if (matchedRule == null) {
                     // No match - log as no_match
-                    String negativeOverride = aiResult.negativeKeywordOverride();
                     saveEmailLog(userId, emailFrom, emailSubject, null, null, "no_match",
                             outlookMessageId, conversationId, false, 0.0,
                             aiResult != null ? aiResult.reasoning() : "No rule matched", null, receivedDateTime,
-                            negativeOverride, negativeOverride, null);
+                            null, null, null);
                     log.info("[NO MATCH] Email: {}", emailSubject);
                     continue;
                 }
@@ -461,29 +468,17 @@ public class EmailProcessingService {
         return Map.of("processed", processed, "forwarded", forwarded, "ai_classified", aiClassified);
     }
 
-    private KeywordMatchResult findKeywordMatch(EmailData emailData, List<ForwardingRule> rules, String bodyText) {
-        String effectiveBody = extractBody(bodyText);
-        String combinedContent = (emailData.subject() + " " + bodyText).toLowerCase();
-        String primaryContentRaw = extractPrimaryMessage(effectiveBody).toLowerCase();
-        final String primaryContent = primaryContentRaw.isEmpty() ? combinedContent : primaryContentRaw;
-
-        List<String> negativeOverrides = new ArrayList<>();
+    private KeywordMatchResult findSenderAndSubjectMatch(EmailData emailData, List<ForwardingRule> rules,
+            String bodyText) {
 
         for (ForwardingRule rule : rules) {
             if (!rule.isActive())
                 continue;
 
-            boolean hasCriteria = (rule.getSenderPattern() != null && !rule.getSenderPattern().isBlank())
-                    || (rule.getSubjectPattern() != null && !rule.getSubjectPattern().isBlank())
-                    || (rule.getKeywords() != null
-                            && Arrays.stream(rule.getKeywords()).anyMatch(kw -> kw != null && !kw.isBlank()));
-            if (!hasCriteria)
-                continue;
-
             // Sender pattern check
             if (rule.getSenderPattern() != null && !rule.getSenderPattern().isBlank()) {
-                if (!emailData.sender().toLowerCase().contains(rule.getSenderPattern().toLowerCase()))
-                    continue;
+                if (emailData.sender().toLowerCase().contains(rule.getSenderPattern().toLowerCase()))
+                    return new KeywordMatchResult(rule, "sender:" + rule.getSenderPattern());
             }
 
             // Subject pattern check
@@ -492,46 +487,10 @@ public class EmailProcessingService {
                         .map(String::trim)
                         .filter(kw -> !kw.isEmpty() && emailData.subject().toLowerCase().contains(kw.toLowerCase()))
                         .findFirst().orElse(null);
-                if (matchedSubjectKw != null) {
-                    String blockedBy = findBlockingNegativeKeyword(rule, primaryContent);
-                    if (blockedBy != null) {
-                        negativeOverrides.add(rule.getName() + ": " + blockedBy);
-                        continue;
-                    }
-                    return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw, negativeOverrides);
-                }
+                return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw);
             }
-
-            // Keyword check (only required when keywords are defined)
-            String matchedKeyword = null;
-            if (rule.getKeywords() != null && rule.getKeywords().length > 0) {
-                matchedKeyword = Arrays.stream(rule.getKeywords())
-                        .filter(kw -> kw != null && !kw.isBlank()
-                                && effectiveBody.contains(kw.toLowerCase().trim()))
-                        .findFirst().orElse(null);
-                if (matchedKeyword == null)
-                    continue;
-            }
-
-            // Negative keyword check
-            String blockedBy = findBlockingNegativeKeyword(rule, effectiveBody);
-            if (blockedBy != null) {
-                negativeOverrides.add(rule.getName() + ": " + blockedBy);
-                continue;
-            }
-
-            return new KeywordMatchResult(rule, matchedKeyword != null ? "keyword:" + matchedKeyword
-                    : "sender:" + rule.getSenderPattern(), negativeOverrides);
         }
-        return new KeywordMatchResult(null, null, negativeOverrides);
-    }
-
-    private String findBlockingNegativeKeyword(ForwardingRule rule, String content) {
-        if (rule.getNegativeKeywords() == null || rule.getNegativeKeywords().length == 0)
-            return null;
-        return Arrays.stream(rule.getNegativeKeywords())
-                .filter(nk -> nk != null && !nk.isBlank() && content.contains(nk.toLowerCase().trim()))
-                .findFirst().orElse(null);
+        return null;
     }
 
     private String findThreadParticipant(String conversationId, String accessToken, UUID ruleId) {
@@ -904,7 +863,8 @@ public class EmailProcessingService {
             return new ThreadSplit("", "");
 
         // Strip signatures and disclaimers from all messages in the thread first,
-        // preserving thread-separator headers (From:/Sent:/To: etc.) so splitting still works.
+        // preserving thread-separator headers (From:/Sent:/To: etc.) so splitting still
+        // works.
         String cleaned = cleanSignaturesAndDisclaimers(bodyText);
         String[] lines = cleaned.split("\n");
         int splitIndex = -1;
@@ -935,7 +895,8 @@ public class EmailProcessingService {
     /**
      * Strips signature blocks (sign-offs + name/title/contact info), footer lines,
      * and confidentiality disclaimers from every message in a thread, while keeping
-     * thread-separator headers (From:/Sent:/To: etc.) intact so splitting can still work.
+     * thread-separator headers (From:/Sent:/To: etc.) intact so splitting can still
+     * work.
      */
     private String cleanSignaturesAndDisclaimers(String raw) {
         String[] lines = raw.replace("\r\n", "\n").split("\n");
@@ -990,8 +951,10 @@ public class EmailProcessingService {
     }
 
     /**
-     * Walks backwards through accumulated output lines and removes short, non-sentence
-     * lines that are characteristic of name/title/company/location blocks that appear
+     * Walks backwards through accumulated output lines and removes short,
+     * non-sentence
+     * lines that are characteristic of name/title/company/location blocks that
+     * appear
      * immediately before a contact-info line (Tel:, E:, W:, …).
      * Stops as soon as it encounters a line that looks like real message content.
      */
@@ -1091,8 +1054,7 @@ public class EmailProcessingService {
     private record ThreadSplit(String lastMessage, String previousMessages) {
     }
 
-    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword,
-            List<String> negativeKeywordOverrides) {
+    private record KeywordMatchResult(ForwardingRule rule, String matchedKeyword) {
     }
 
     private record ForwardedInfo(boolean isForwarded, String originalSender, String originalSubject,
