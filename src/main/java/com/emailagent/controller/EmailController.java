@@ -118,29 +118,4 @@ public class EmailController {
     public ResponseEntity<Map<String, Object>> retryFailed(@AuthenticationPrincipal AuthenticatedUser user) {
         return ResponseEntity.ok(emailProcessingService.retryFailedEmails(user.getId()));
     }
-
-    @PostMapping("/classify")
-    public ResponseEntity<Map<String, Object>> classifyEmail(
-            @AuthenticationPrincipal AuthenticatedUser user,
-            @RequestBody Map<String, Object> body) {
-        @SuppressWarnings("unchecked")
-        Map<String, String> emailMap = (Map<String, String>) body.get("email");
-        List<ForwardingRule> rules = ruleRepository.findByUserIdAndActiveTrueOrderByPriorityAscCreatedAtDesc(user.getId());
-
-        EmailClassificationService.EmailData emailData = new EmailClassificationService.EmailData(
-                emailMap.getOrDefault("subject", ""),
-                emailMap.getOrDefault("body", ""),
-                emailMap.getOrDefault("sender", ""),
-                false, null, null, null
-        );
-
-        EmailClassificationService.ClassificationResult result = classificationService.classify(emailData, rules);
-        return ResponseEntity.ok(Map.of(
-                "matched_rule_id", result.matchedRuleId() != null ? result.matchedRuleId() : "",
-                "matched_rule_name", result.matchedRuleName() != null ? result.matchedRuleName() : "",
-                "confidence", result.confidence(),
-                "reasoning", result.reasoning() != null ? result.reasoning() : "",
-                "override_recipient_email", result.overrideRecipientEmail() != null ? result.overrideRecipientEmail() : ""
-        ));
-    }
 }
