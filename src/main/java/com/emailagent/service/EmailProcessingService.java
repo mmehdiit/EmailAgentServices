@@ -316,9 +316,9 @@ public class EmailProcessingService {
 
                 // OCR: skip emails whose attachments contain a police report
                 boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
-                BigDecimal policeReportVisa = null;
+                List<BigDecimal> policeReportVisas = new ArrayList<>();
                 if (hasAttachments) {
-                    policeReportVisa = processAttachments(accessToken, outlookMessageId, emailSubject);
+                    policeReportVisas = processAttachments(accessToken, outlookMessageId, emailSubject);
                 }
 
                 // Find matching rule
@@ -392,7 +392,7 @@ public class EmailProcessingService {
                 // Build tracking token and forward
                 UUID trackingToken = UUID.randomUUID();
                 String trackingLink = appUrl + "/mark-replied?token=" + trackingToken;
-                String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink, policeReportVisa);
+                String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink, policeReportVisas);
 
                 try {
                     outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
@@ -720,17 +720,23 @@ public class EmailProcessingService {
     }
 
     private String buildReplyTrackingNote(String integratedEmail, String trackingLinkUrl,
-            java.math.BigDecimal notificationVisa) {
-        String claimBanner = (notificationVisa != null)
-                ? "<div style=\"border: 2px solid #16a34a; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; background: #f0fdf4;\">"
-                        +
-                        "<p style=\"color: #15803d; font-weight: 700; font-size: 15px; margin: 0 0 6px 0;\">✅ New Claim Created</p>"
-                        +
-                        "<p style=\"color: #166534; font-size: 13px; margin: 0;\">A new claim has been automatically created from the attached police report. "
-                        +
-                        "Claim Visa: <strong>" + notificationVisa.toPlainString() + "</strong></p>" +
-                        "</div>"
-                : "";
+            List<BigDecimal> notificationVisas) {
+        String claimBanner = "";
+        if (notificationVisas != null && !notificationVisas.isEmpty()) {
+            boolean multiple = notificationVisas.size() > 1;
+            String visaList = notificationVisas.stream()
+                    .map(v -> "<strong>" + v.toPlainString() + "</strong>")
+                    .collect(Collectors.joining(", "));
+            claimBanner = "<div style=\"border: 2px solid #16a34a; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; background: #f0fdf4;\">"
+                    + "<p style=\"color: #15803d; font-weight: 700; font-size: 15px; margin: 0 0 6px 0;\">✅ "
+                    + (multiple ? "New Claims Created" : "New Claim Created") + "</p>"
+                    + "<p style=\"color: #166534; font-size: 13px; margin: 0;\">"
+                    + (multiple ? notificationVisas.size() + " new claims have" : "A new claim has")
+                    + " been automatically created from the attached police report. "
+                    + (multiple ? "Claim Visas: " : "Claim Visa: ") + visaList + "</p>"
+                    + "</div>";
+        }
+        
         return "<div style=\"font-family: Arial, sans-serif; margin-bottom: 25px;\">" +
                 claimBanner +
                 "<div style=\"border-left: 4px solid #0C799A; padding: 16px 20px; margin-bottom: 20px; background: #f0f9ff; border-radius: 0 8px 8px 0;\">"
@@ -1072,10 +1078,10 @@ public class EmailProcessingService {
         return cachedOcrToken;
     }
 
-    private BigDecimal processAttachments(String accessToken, String messageId,
+    private List<BigDecimal> processAttachments(String accessToken, String messageId,
             String emailSubject) {
         try {
-            BigDecimal policeReportVisa = null;
+            List<BigDecimal> policeReportVisas = new ArrayList<>();
             String bearerToken = getOcrBearerToken();
 
             JsonNode attachmentsData = outlookService.callGraphApi(
@@ -1177,7 +1183,7 @@ public class EmailProcessingService {
                                         notificationResponse.getNotificationId(),
                                         notificationResponse.getReportNumber());
 
-                                policeReportVisa = notificationResponse.getNotificationVisa();
+                                policeReportVisas.add(notificationResponse.getNotificationVisa());
 
                                 // If report number is empty, call the data management API
                                 if (notificationResponse.getReportNumber() == null
@@ -1198,7 +1204,7 @@ public class EmailProcessingService {
                                     }
                                 }
 
-                                return policeReportVisa;
+                                return policeReportVisas;
 
                             } catch (Exception e) {
                                 log.error("[POLICE REPORT] Failed to create car notification for email: {}",
