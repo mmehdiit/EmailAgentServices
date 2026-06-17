@@ -100,6 +100,9 @@ public class EmailProcessingService {
     @Value("${app.datamanagement.url}")
     private String dataManagementBaseUrl;
 
+    @Value("${ai.confidence-threshold}")
+    private double aiConfidenceThreshold;
+
     private final ConcurrentHashMap<UUID, ReentrantLock> userProcessingLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long> userLastProcessedAt = new ConcurrentHashMap<>();
     private static final long MIN_REPROCESS_INTERVAL_MS = 60_000; // 1 minute
@@ -338,7 +341,7 @@ public class EmailProcessingService {
                 // If no keyword match, try AI classification
                 if (matchedRule == null) {
                     aiResult = classificationService.classify(lastMessage, previousMessages, rules);
-                    if (aiResult.matchedRuleId() != null && aiResult.confidence() >= 0.7) {
+                    if (aiResult.matchedRuleId() != null && aiResult.confidence() >= aiConfidenceThreshold) {
                         final String ruleId = aiResult.matchedRuleId();
                         matchedRule = rules.stream()
                                 .filter(r -> r.getId().toString().equals(ruleId))
@@ -399,7 +402,8 @@ public class EmailProcessingService {
                         outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
                     } catch (Exception forwardEx) {
                         if (isAuthError(forwardEx)) {
-                            log.warn("[TOKEN] Token expired mid-process, refreshing and retrying for: {}", emailSubject);
+                            log.warn("[TOKEN] Token expired mid-process, refreshing and retrying for: {}",
+                                    emailSubject);
                             accessToken = outlookService.refreshAccessToken(connection);
                             outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
                         } else {
@@ -747,7 +751,7 @@ public class EmailProcessingService {
                     + (multiple ? "Claim Visas: " : "Claim Visa: ") + visaList + "</p>"
                     + "</div>";
         }
-        
+
         return "<div style=\"font-family: Arial, sans-serif; margin-bottom: 25px;\">" +
                 claimBanner +
                 "<div style=\"border-left: 4px solid #0C799A; padding: 16px 20px; margin-bottom: 20px; background: #f0f9ff; border-radius: 0 8px 8px 0;\">"
