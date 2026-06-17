@@ -955,11 +955,12 @@ public class EmailProcessingService {
                 removed++;
                 continue;
             }
-            // Stop: looks like actual message content
+            // Stop: looks like actual message content or a structural header
             if (last.contains("?") || last.contains("!")
                     || last.endsWith(".")
-                    || last.split("\\s+").length > 8
-                    || last.matches("(?i)^(hi|hello|dear|hey|greetings)\\b.*")) {
+                    || last.split("\\s+").length > 5
+                    || last.matches("(?i)^(hi|hello|dear|hey|greetings)\\b.*")
+                    || HEADER_LINE.matcher(last).matches()) {
                 break;
             }
             lines.remove(lines.size() - 1);
