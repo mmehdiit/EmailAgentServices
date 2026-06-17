@@ -395,7 +395,17 @@ public class EmailProcessingService {
                 String replyNote = buildReplyTrackingNote(integratedEmail, trackingLink, policeReportVisas);
 
                 try {
-                    outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
+                    try {
+                        outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
+                    } catch (Exception forwardEx) {
+                        if (isAuthError(forwardEx)) {
+                            log.warn("[TOKEN] Token expired mid-process, refreshing and retrying for: {}", emailSubject);
+                            accessToken = outlookService.refreshAccessToken(connection);
+                            outlookService.forwardMessage(accessToken, outlookMessageId, effectiveRecipient, replyNote);
+                        } else {
+                            throw forwardEx;
+                        }
+                    }
 
                     // Mark as read
                     markEmailRead(accessToken, outlookMessageId);
@@ -1301,6 +1311,12 @@ public class EmailProcessingService {
 
         log.warn("[POLICE REPORT] Unexpected response status: {}", response.getStatusCode());
         throw new RuntimeException("Failed to create car notification: " + response.getStatusCode());
+    }
+
+    private boolean isAuthError(Exception e) {
+        String msg = e.getMessage();
+        return msg != null && (msg.contains("401") || msg.contains("InvalidAuthenticationToken")
+                || msg.toLowerCase().contains("token is expired"));
     }
 
     private void processPoliceReportAutomation(String carId, byte[] fileBytes, String fileName) throws Exception {
