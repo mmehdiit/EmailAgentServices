@@ -316,45 +316,9 @@ public class EmailProcessingService {
 
                 // OCR: skip emails whose attachments contain a police report
                 boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
-                PoliceReportAttachment policeReportAttachment = null;
                 BigDecimal policeReportVisa = null;
-                if (hasAttachments
-                        && (policeReportAttachment = hasPoliceReportAttachment(accessToken,
-                                outlookMessageId)) != null) {
-                    if (policeReportAttachment != null && policeReportAttachment.reportDto() != null) {
-                        log.info("[POLICE REPORT] Detected police report in email: {}", emailSubject);
-                        try {
-                            NewNotificationByReportResponse notificationResponse = createCarNotificationByPoliceReport(
-                                    policeReportAttachment.reportDto());
-                            log.info("[POLICE REPORT] Successfully created car notification - ID: {}, Report: {}",
-                                    notificationResponse.getNotificationId(), notificationResponse.getReportNumber());
-
-                            policeReportVisa = notificationResponse.getNotificationVisa();
-
-                            // If report number is empty, call the data management API
-                            if (notificationResponse.getReportNumber() == null
-                                    || notificationResponse.getReportNumber().trim().isEmpty()) {
-                                log.info(
-                                        "[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
-                                        notificationResponse.getCarId());
-                                try {
-                                    processPoliceReportAutomation(notificationResponse.getCarId(),
-                                            policeReportAttachment.fileBytes(), policeReportAttachment.fileName());
-                                    log.info(
-                                            "[POLICE REPORT] Successfully processed police report automation for carId: {}",
-                                            notificationResponse.getCarId());
-                                } catch (Exception e) {
-                                    log.error(
-                                            "[POLICE REPORT] Failed to process police report automation for carId: {}",
-                                            notificationResponse.getCarId(), e);
-                                }
-                            }
-
-                        } catch (Exception e) {
-                            log.error("[POLICE REPORT] Failed to create car notification for email: {}", emailSubject,
-                                    e);
-                        }
-                    }
+                if (hasAttachments) {
+                    policeReportVisa = processAttachments(accessToken, outlookMessageId, emailSubject);
                 }
 
                 // Find matching rule
@@ -1108,8 +1072,10 @@ public class EmailProcessingService {
         return cachedOcrToken;
     }
 
-    private PoliceReportAttachment hasPoliceReportAttachment(String accessToken, String messageId) {
+    private BigDecimal processAttachments(String accessToken, String messageId,
+            String emailSubject) {
         try {
+            BigDecimal policeReportVisa = null;
             String bearerToken = getOcrBearerToken();
 
             JsonNode attachmentsData = outlookService.callGraphApi(
@@ -1119,7 +1085,6 @@ public class EmailProcessingService {
             JsonNode attachments = attachmentsData.path("value");
 
             for (JsonNode attachment : attachments) {
-
                 try {
 
                     // Only real file attachments
@@ -1198,10 +1163,49 @@ public class EmailProcessingService {
 
                         log.info("[OCR] Police report found in attachment: {}", fileName);
 
-                        return new PoliceReportAttachment(
+                        PoliceReportAttachment policeReportAttachment = new PoliceReportAttachment(
                                 ocrResult,
                                 fileBytes,
                                 fileName);
+
+                        if (policeReportAttachment != null && policeReportAttachment.reportDto() != null) {
+                            log.info("[POLICE REPORT] Detected police report in email: {}", emailSubject);
+                            try {
+                                NewNotificationByReportResponse notificationResponse = createCarNotificationByPoliceReport(
+                                        policeReportAttachment.reportDto());
+                                log.info("[POLICE REPORT] Successfully created car notification - ID: {}, Report: {}",
+                                        notificationResponse.getNotificationId(),
+                                        notificationResponse.getReportNumber());
+
+                                policeReportVisa = notificationResponse.getNotificationVisa();
+
+                                // If report number is empty, call the data management API
+                                if (notificationResponse.getReportNumber() == null
+                                        || notificationResponse.getReportNumber().trim().isEmpty()) {
+                                    log.info(
+                                            "[POLICE REPORT] Report number is empty, calling data management API for carId: {}",
+                                            notificationResponse.getCarId());
+                                    try {
+                                        processPoliceReportAutomation(notificationResponse.getCarId(),
+                                                policeReportAttachment.fileBytes(), policeReportAttachment.fileName());
+                                        log.info(
+                                                "[POLICE REPORT] Successfully processed police report automation for carId: {}",
+                                                notificationResponse.getCarId());
+                                    } catch (Exception e) {
+                                        log.error(
+                                                "[POLICE REPORT] Failed to process police report automation for carId: {}",
+                                                notificationResponse.getCarId(), e);
+                                    }
+                                }
+
+                                return policeReportVisa;
+
+                            } catch (Exception e) {
+                                log.error("[POLICE REPORT] Failed to create car notification for email: {}",
+                                        emailSubject,
+                                        e);
+                            }
+                        }
                     }
 
                 } catch (Exception e) {

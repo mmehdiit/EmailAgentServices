@@ -1,23 +1,28 @@
 package com.emailagent.controller;
 
-import com.emailagent.exception.ApiException;
-import com.emailagent.model.ForwardingRule;
-import com.emailagent.repository.ForwardingRuleRepository;
-import com.emailagent.security.AuthenticatedUser;
-import com.emailagent.service.EmailClassificationService;
-import com.emailagent.service.EmailProcessingService;
-import com.emailagent.service.OutlookService;
-import com.fasterxml.jackson.databind.JsonNode;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.emailagent.exception.ApiException;
+import com.emailagent.security.AuthenticatedUser;
+import com.emailagent.service.EmailProcessingService;
+import com.emailagent.service.OutlookService;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @RestController
@@ -26,16 +31,15 @@ import java.util.UUID;
 public class EmailController {
 
     private final EmailProcessingService emailProcessingService;
+    
     private final OutlookService outlookService;
-    private final EmailClassificationService classificationService;
-    private final ForwardingRuleRepository ruleRepository;
 
     @PostMapping("/process")
     public ResponseEntity<Map<String, Object>> processEmails(@AuthenticationPrincipal AuthenticatedUser user) {
         Map<String, Object> result = emailProcessingService.processForUser(user.getId());
         return ResponseEntity.ok(result);
     }
-    
+
     @GetMapping("/unread")
     public ResponseEntity<List<Map<String, Object>>> getUnreadEmails(@AuthenticationPrincipal AuthenticatedUser user) {
         String accessToken = outlookService.getValidAccessToken(user.getId());
@@ -54,8 +58,7 @@ public class EmailController {
                     "receivedDateTime", email.path("receivedDateTime").asText(""),
                     "bodyPreview", email.path("bodyPreview").asText(""),
                     "conversationId", email.path("conversationId").asText(""),
-                    "hasAttachments", email.path("hasAttachments").asBoolean(false)
-            ));
+                    "hasAttachments", email.path("hasAttachments").asBoolean(false)));
         }
         return ResponseEntity.ok(result);
     }
@@ -77,8 +80,7 @@ public class EmailController {
                 "from", email.path("from").path("emailAddress").path("address").asText(""),
                 "body", plainText,
                 "htmlBody", htmlBody,
-                "receivedDateTime", email.path("receivedDateTime").asText("")
-        ));
+                "receivedDateTime", email.path("receivedDateTime").asText("")));
     }
 
     @PatchMapping("/{messageId}/read")
