@@ -454,7 +454,8 @@ public class EmailProcessingService {
                         .map(String::trim)
                         .filter(kw -> !kw.isEmpty() && emailData.subject().toLowerCase().contains(kw.toLowerCase()))
                         .findFirst().orElse(null);
-                return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw);
+                if (matchedSubjectKw != null)
+                    return new KeywordMatchResult(rule, "subject:" + matchedSubjectKw);
             }
         }
         return null;
