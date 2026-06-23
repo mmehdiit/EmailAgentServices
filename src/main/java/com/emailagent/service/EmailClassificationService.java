@@ -4,6 +4,10 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,6 +76,13 @@ public class EmailClassificationService {
             payload.put("rules", rulesList);
 
             String requestBody = objectMapper.writeValueAsString(payload);
+            
+            try {
+                String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
+                Files.writeString(Paths.get("C:\\Users\\User\\Desktop\\EmailAgent\\requests", "request_" + timestamp + ".json"), requestBody);
+            } catch (Exception fileEx) {
+                log.warn("Failed to save AI request to file", fileEx);
+            }
 
             log.debug("[AI REQUEST] {}", requestBody);
 
