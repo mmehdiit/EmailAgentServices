@@ -109,6 +109,12 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
+        <!-- Microsoft Entra ID token validation -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
+        </dependency>
+
         <!-- Apache HttpClient 5 for external API calls -->
         <dependency>
             <groupId>org.apache.httpcomponents.client5</groupId>

@@ -1,7 +1,7 @@
 package com.emailagent.controller;
 
-import com.emailagent.dto.LoginRequest;
 import com.emailagent.dto.LoginResponse;
+import com.emailagent.dto.MicrosoftLoginRequest;
 import com.emailagent.security.AuthenticatedUser;
 import com.emailagent.service.AuthService;
 import jakarta.validation.Valid;
@@ -19,9 +19,9 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @PostMapping("/login")
-    public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    @PostMapping("/microsoft-login")
+    public ResponseEntity<LoginResponse> microsoftLogin(@Valid @RequestBody MicrosoftLoginRequest request) {
+        return ResponseEntity.ok(authService.microsoftLogin(request.getIdToken()));
     }
 
     @GetMapping("/me")

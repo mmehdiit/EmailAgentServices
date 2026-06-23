@@ -1,7 +1,6 @@
 package com.emailagent.service;
 
 import com.emailagent.dto.CreateUserRequest;
-import com.emailagent.dto.LoginRequest;
 import com.emailagent.dto.LoginResponse;
 import com.emailagent.exception.ApiException;
 import com.emailagent.model.User;
@@ -12,11 +11,10 @@ import com.emailagent.repository.UserRoleRepository;
 import com.emailagent.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -27,33 +25,41 @@ public class AuthService {
     private final UserRepository userRepository;
     private final UserRoleRepository userRoleRepository;
     private final DepartmentRepository departmentRepository;
-    private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
+    private final MicrosoftTokenService microsoftTokenService;
 
-    public LoginResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> ApiException.unauthorized("Invalid email or password"));
+    public LoginResponse microsoftLogin(String idToken) {
+        Jwt jwt = microsoftTokenService.validateAndDecode(idToken);
+        String email = microsoftTokenService.extractEmail(jwt);
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            throw ApiException.unauthorized("Invalid email or password");
+        if (email == null || email.isBlank()) {
+            throw ApiException.unauthorized("Cannot extract email from Microsoft token");
         }
+
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> {
+                    log.warn("Microsoft login attempted for unprovisioned email: {}", email);
+                    return ApiException.unauthorized("Account not provisioned. Please contact your administrator.");
+                });
 
         String role = userRoleRepository.findByUserId(user.getId())
                 .map(UserRole::getRole)
                 .orElse("user");
 
         String token = jwtTokenProvider.generateToken(user.getId(), user.getEmail());
+        log.info("Microsoft login successful for {}", user.getEmail());
         return new LoginResponse(token, user.getId(), user.getEmail(), role);
     }
 
     @Transactional
     public LoginResponse createUser(CreateUserRequest request, UUID callerUserId) {
-        // Verify caller is admin
         if (!userRoleRepository.existsByUserIdAndRole(callerUserId, "admin")) {
             throw ApiException.forbidden("Admin access required");
         }
 
-        if (userRepository.existsByEmail(request.getEmail())) {
+        String email = request.getEmail().trim().toLowerCase();
+
+        if (userRepository.existsByEmail(email)) {
             throw ApiException.badRequest("User with this email already exists");
         }
 
@@ -69,8 +75,7 @@ public class AuthService {
         }
 
         User user = new User();
-        user.setEmail(request.getEmail());
-        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setEmail(email);
         user.setDepartmentId(request.getDepartmentId());
         userRepository.save(user);
 
@@ -79,10 +84,10 @@ public class AuthService {
         role.setRole(assignedRole);
         userRoleRepository.save(role);
 
-        log.info("Created user {} with role {} in department {}", user.getEmail(), role.getRole(), user.getDepartmentId());
+        log.info("Provisioned user {} with role {} in department {}", user.getEmail(), role.getRole(), user.getDepartmentId());
 
-        String token = jwtTokenProvider.generateToken(user.getId(), user.getEmail());
-        return new LoginResponse(token, user.getId(), user.getEmail(), role.getRole());
+        // No token issued here — user must authenticate via Microsoft Entra ID
+        return new LoginResponse(null, user.getId(), user.getEmail(), role.getRole());
     }
 
     public String getUserRole(UUID userId) {
