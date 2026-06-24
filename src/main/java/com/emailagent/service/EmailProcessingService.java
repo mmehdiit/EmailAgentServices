@@ -29,6 +29,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -106,7 +107,14 @@ public class EmailProcessingService {
     private final ConcurrentHashMap<UUID, ReentrantLock> userProcessingLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long> userLastProcessedAt = new ConcurrentHashMap<>();
     private static final long MIN_REPROCESS_INTERVAL_MS = 60_000; // 1 minute
-    private final RestTemplate ocrRestTemplate = new RestTemplate();
+    private final RestTemplate ocrRestTemplate = createOcrRestTemplate();
+
+    private static RestTemplate createOcrRestTemplate() {
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(600_000);
+        factory.setReadTimeout(600_000);
+        return new RestTemplate(factory);
+    }
     private String cachedOcrToken;
     private long cachedOcrTokenFetchedAt = 0;
 
