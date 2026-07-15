@@ -1,0 +1,2 @@
+ALTER TABLE forwarding_rules ADD COLUMN IF NOT EXISTS auto_reply_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE forwarding_rules ADD COLUMN IF NOT EXISTS reply_body TEXT;

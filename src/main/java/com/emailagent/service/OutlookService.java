@@ -317,6 +317,31 @@ public class OutlookService {
         }
     }
 
+    public void replyToMessage(String accessToken, String messageId, String comment) {
+        try {
+            HttpClient client = HttpClient.newHttpClient();
+            String body = objectMapper.writeValueAsString(Map.of("comment", comment));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://graph.microsoft.com/v1.0/me/messages/" + messageId + "/reply"))
+                    .header("Authorization", "Bearer " + accessToken)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() >= 300) {
+                log.error("Reply message failed {}: {}", response.statusCode(), response.body());
+                throw ApiException.internal("Failed to reply to email: " + response.statusCode());
+            }
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error replying to message", e);
+            throw ApiException.internal("Failed to reply to email: " + e.getMessage());
+        }
+    }
+
     private String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }

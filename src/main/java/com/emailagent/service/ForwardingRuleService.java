@@ -98,6 +98,8 @@ public class ForwardingRuleService {
         rule.setSmartThreadEnabled(req.isSmartThreadEnabled());
         rule.setExtractAttachments(req.isExtractAttachments());
         rule.setTemplateId(req.getTemplateId());
+        rule.setAutoReplyEnabled(req.isAutoReplyEnabled());
+        rule.setReplyBody(req.getReplyBody());
     }
 
     public ForwardingRuleDto toDto(ForwardingRule rule) {
@@ -120,6 +122,8 @@ public class ForwardingRuleService {
         dto.setSmartThreadEnabled(rule.isSmartThreadEnabled());
         dto.setExtractAttachments(rule.isExtractAttachments());
         dto.setTemplateId(rule.getTemplateId());
+        dto.setAutoReplyEnabled(rule.isAutoReplyEnabled());
+        dto.setReplyBody(rule.getReplyBody());
         dto.setCreatedAt(rule.getCreatedAt());
         return dto;
     }

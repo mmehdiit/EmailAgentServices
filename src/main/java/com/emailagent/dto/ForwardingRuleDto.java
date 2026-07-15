@@ -25,5 +25,7 @@ public class ForwardingRuleDto {
     private boolean smartThreadEnabled;
     private boolean extractAttachments;
     private UUID templateId;
+    private boolean autoReplyEnabled;
+    private String replyBody;
     private OffsetDateTime createdAt;
 }

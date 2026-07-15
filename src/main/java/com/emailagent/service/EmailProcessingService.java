@@ -369,6 +369,29 @@ public class EmailProcessingService {
                     continue;
                 }
 
+                // Auto-reply: send the rule's configured reply to the sender, independent of forwarding
+                if (matchedRule.isAutoReplyEnabled() && matchedRule.getReplyBody() != null
+                        && !matchedRule.getReplyBody().isBlank()) {
+                    String replyHtml = plainTextToHtml(matchedRule.getReplyBody());
+                    try {
+                        try {
+                            outlookService.replyToMessage(accessToken, outlookMessageId, replyHtml);
+                        } catch (Exception replyEx) {
+                            if (isAuthError(replyEx)) {
+                                log.warn("[TOKEN] Token expired mid-process, refreshing and retrying reply for: {}",
+                                        emailSubject);
+                                accessToken = outlookService.refreshAccessToken(connection);
+                                outlookService.replyToMessage(accessToken, outlookMessageId, replyHtml);
+                            } else {
+                                throw replyEx;
+                            }
+                        }
+                        log.info("[AUTO-REPLY] Replied to \"{}\" via rule \"{}\"", emailFrom, matchedRule.getName());
+                    } catch (Exception e) {
+                        log.error("[AUTO-REPLY] Failed to reply to email: {}", emailSubject, e);
+                    }
+                }
+
                 // Determine recipient
                 if (wasAiClassified && aiResult != null && aiResult.overrideRecipientEmail() != null) {
                     effectiveRecipient = aiResult.overrideRecipientEmail();
@@ -783,6 +806,28 @@ public class EmailProcessingService {
     }
 
     // ---- Text processing utilities ----
+
+    /**
+     * Converts plain text (as stored for a rule's reply body) into HTML, escaping
+     * entities and turning line breaks into &lt;br&gt; so paragraphs/spacing survive
+     * when Graph API renders the reply comment as HTML. Normalizes both real
+     * newlines and literal "\n"/"\r\n" escape sequences (which can end up stored
+     * verbatim if the value was entered somewhere that doesn't interpret JSON
+     * escapes, e.g. a raw SQL insert or DB editor) into actual line breaks first.
+     */
+    public static String plainTextToHtml(String text) {
+        if (text == null)
+            return "";
+        String normalized = text
+                .replace("\r\n", "\n")
+                .replace("\\r\\n", "\n")
+                .replace("\\n", "\n");
+        String escaped = normalized
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+        return escaped.replace("\n", "<br>");
+    }
 
     public static String extractTextFromHtml(String html) {
         if (html == null || html.isEmpty())

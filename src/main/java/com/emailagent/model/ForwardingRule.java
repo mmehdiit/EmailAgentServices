@@ -74,6 +74,12 @@ public class ForwardingRule {
     @Column(name = "template_id", columnDefinition = "uuid")
     private UUID templateId;
 
+    @Column(name = "auto_reply_enabled", nullable = false)
+    private boolean autoReplyEnabled = false;
+
+    @Column(name = "reply_body", columnDefinition = "text")
+    private String replyBody;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private OffsetDateTime createdAt;

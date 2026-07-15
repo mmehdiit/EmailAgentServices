@@ -27,4 +27,6 @@ public class ForwardingRuleRequest {
     private boolean smartThreadEnabled = true;
     private boolean extractAttachments = false;
     private UUID templateId;
+    private boolean autoReplyEnabled = false;
+    private String replyBody;
 }
