@@ -325,13 +325,6 @@ public class EmailProcessingService {
                         forwardedInfo.isForwarded(), forwardedInfo.originalSender(),
                         forwardedInfo.originalSubject(), forwardedInfo.originalDate());
 
-                // OCR: skip emails whose attachments contain a police report
-                boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
-                List<BigDecimal> policeReportVisas = new ArrayList<>();
-                if (hasAttachments) {
-                    policeReportVisas = processAttachments(accessToken, outlookMessageId, emailSubject);
-                }
-
                 // Find matching rule
                 ForwardingRule matchedRule = null;
                 boolean wasAiClassified = false;
@@ -367,6 +360,13 @@ public class EmailProcessingService {
                             null, null, null);
                     log.info("[NO MATCH] Email: {}", emailSubject);
                     continue;
+                }
+
+                // OCR: skip emails whose attachments contain a police report
+                boolean hasAttachments = email.path("hasAttachments").asBoolean(false);
+                List<BigDecimal> policeReportVisas = new ArrayList<>();
+                if (hasAttachments) {
+                    policeReportVisas = processAttachments(accessToken, outlookMessageId, emailSubject);
                 }
 
                 // Auto-reply: send the rule's configured reply to the sender, independent of forwarding
