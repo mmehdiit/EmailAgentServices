@@ -12,7 +12,9 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -37,6 +39,16 @@ public class EmailLogService {
                 .stream()
                 .map(this::toDto)
                 .toList();
+    }
+
+    public Map<String, Long> getForwardedNotRepliedCountsByEmail(UUID userId) {
+        UUID effectiveUserId = resolveEffectiveUserId(userId);
+        Map<String, Long> counts = new LinkedHashMap<>();
+        for (EmailLogRepository.ForwardedToCount row :
+                emailLogRepository.countForwardedNotRepliedGroupedByForwardedTo(effectiveUserId)) {
+            counts.put(row.getForwardedTo(), row.getCount());
+        }
+        return counts;
     }
 
     private UUID resolveEffectiveUserId(UUID userId) {

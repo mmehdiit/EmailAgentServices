@@ -39,4 +39,15 @@ public interface EmailLogRepository extends JpaRepository<EmailLog, UUID> {
 
     @Query("SELECT e FROM EmailLog e WHERE e.userId = :userId AND e.status = 'forwarded' ORDER BY e.processedAt DESC")
     List<EmailLog> findForwardedByUserId(UUID userId);
+
+    @Query("SELECT e.forwardedTo AS forwardedTo, COUNT(e) AS count FROM EmailLog e " +
+            "WHERE e.userId = :userId " +
+            "AND e.status = 'forwarded' AND e.replyDetected = false " +
+            "GROUP BY e.forwardedTo")
+    List<ForwardedToCount> countForwardedNotRepliedGroupedByForwardedTo(UUID userId);
+
+    interface ForwardedToCount {
+        String getForwardedTo();
+        Long getCount();
+    }
 }

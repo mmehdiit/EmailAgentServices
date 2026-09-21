@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/v1/api/email-agent/email-logs")
@@ -28,5 +29,11 @@ public class EmailLogController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
         return ResponseEntity.ok(emailLogService.getLogsForUser(user.getId(), fromDate, toDate));
+    }
+
+    @GetMapping("/forwarded-not-replied-count")
+    public ResponseEntity<Map<String, Long>> getForwardedNotRepliedCountsByEmail(
+            @AuthenticationPrincipal AuthenticatedUser user) {
+        return ResponseEntity.ok(emailLogService.getForwardedNotRepliedCountsByEmail(user.getId()));
     }
 }
